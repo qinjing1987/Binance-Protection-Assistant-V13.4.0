@@ -78,6 +78,12 @@ function validateSettingsPatch(patch) {
     if (r.exitRsiLong != null && !(Number(r.exitRsiLong) >= 50 && Number(r.exitRsiLong) <= 80)) throw new Error('多头RSI退出阈值必须在50～80');
     if (r.exitRsiShort != null && !(Number(r.exitRsiShort) >= 20 && Number(r.exitRsiShort) <= 50)) throw new Error('空头RSI退出阈值必须在20～50');
     if (r.exitOnIndicatorReverse != null && typeof r.exitOnIndicatorReverse !== 'boolean') throw new Error('指标平仓必须是 true 或 false');
+    if (r.divergenceEnabled != null && typeof r.divergenceEnabled !== 'boolean') throw new Error('背离检测开关必须是 true 或 false');
+    if (r.divergenceLookbackBars != null && !(Number(r.divergenceLookbackBars) >= 20 && Number(r.divergenceLookbackBars) <= 200)) throw new Error('背离回看K线必须在20～200');
+    if (r.divergencePivotSpan != null && !(Number(r.divergencePivotSpan) >= 1 && Number(r.divergencePivotSpan) <= 5)) throw new Error('背离pivot跨度必须在1～5');
+    if (r.divergenceMinRsiDelta != null && !(Number(r.divergenceMinRsiDelta) >= 0 && Number(r.divergenceMinRsiDelta) <= 20)) throw new Error('背离RSI最小差值必须在0～20');
+    if (r.divergenceMinBarsBetween != null && !(Number(r.divergenceMinBarsBetween) >= 2 && Number(r.divergenceMinBarsBetween) <= 30)) throw new Error('背离两个pivot最小间隔必须在2～30');
+    if (r.divergenceMaxAgeBars != null && !(Number(r.divergenceMaxAgeBars) >= 1 && Number(r.divergenceMaxAgeBars) <= 60)) throw new Error('背离最大陈旧根数必须在1～60');
   }
   if (patch.risk) {
     const r = patch.risk;

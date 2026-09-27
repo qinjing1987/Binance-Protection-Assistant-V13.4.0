@@ -200,15 +200,27 @@ function detectBollingerPullback(candles, action, period = 20, stdDev = 2, lookb
   };
 }
 
-function pivotLevels(candles, side) {
+// 摆动高低点识别：i 左右各 span 根都不更极端，则为 pivot。
+// side='LONG' 找 swing low（比较 low），side='SHORT' 找 swing high（比较 high）。
+// 返回 [{ price, index }]，index 是 candles 下标，可直接用于索引 RSI 序列（注意 rsiSeries 的下标偏移，用 rsiAt）。
+function pivotLevels(candles, side, span = 2) {
   const out = [];
-  for (let i = 2; i < candles.length - 2; i++) {
+  if (!Array.isArray(candles)) return out;
+  const s = Math.max(1, Math.min(5, Number(span) || 2));
+  for (let i = s; i < candles.length - s; i++) {
+    let ok = true;
     if (side === 'LONG') {
       const x = candles[i].low;
-      if (x <= candles[i - 1].low && x <= candles[i - 2].low && x <= candles[i + 1].low && x <= candles[i + 2].low) out.push({ price: x, index: i });
+      for (let k = 1; k <= s && ok; k++) {
+        if (!(x <= candles[i - k].low && x <= candles[i + k].low)) ok = false;
+      }
+      if (ok) out.push({ price: x, index: i });
     } else {
       const x = candles[i].high;
-      if (x >= candles[i - 1].high && x >= candles[i - 2].high && x >= candles[i + 1].high && x >= candles[i + 2].high) out.push({ price: x, index: i });
+      for (let k = 1; k <= s && ok; k++) {
+        if (!(x >= candles[i - k].high && x >= candles[i + k].high)) ok = false;
+      }
+      if (ok) out.push({ price: x, index: i });
     }
   }
   return out;
@@ -326,6 +338,64 @@ function rsiSeries(candles, period = 14) {
     out[i] = calc();
   }
   return out.filter(v => v != null);
+}
+
+// rsiSeries 返回前做了 filter(v => v != null)，剥掉了前 period 个 null，
+// 所以返回数组下标与 candle 下标相差 period：candleIndex = rsiIndex + period。
+// 直接写 vals[pivot.index] 会取到错位的历史 RSI —— 统一走这里并做边界校验。
+function rsiAt(rsiValues, candleIndex, period) {
+  if (!Array.isArray(rsiValues)) return null;
+  const idx = Number(candleIndex) - Number(period);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= rsiValues.length) return null;
+  const v = rsiValues[idx];
+  return Number.isFinite(v) ? v : null;
+}
+
+// RSI 顶底背离：价格创新极值，但 RSI 没有同步创新极值。
+// LONG 看 swing low（底背离，跌势衰竭→看涨）；SHORT 看 swing high（顶背离，涨势衰竭→看跌）。
+// 未确认时返回 confirmed:false 并带 reason，便于在逐币诊断面板里看到"为什么没触发"。
+function detectRsiDivergence(candles, rsiValues, action, {
+  period = 14, lookbackBars = 60, pivotSpan = 2,
+  minRsiDelta = 2, minBarsBetween = 5, maxAgeBars = 15
+} = {}) {
+  const actionName = String(action || '').toUpperCase() === 'LONG' ? 'LONG' : 'SHORT';
+  const base = { confirmed: false, type: actionName === 'LONG' ? 'BULLISH_DIVERGENCE' : 'BEARISH_DIVERGENCE', reason: null };
+  const minBars = Math.max(2, Number(minBarsBetween) || 5);
+  if (!Array.isArray(candles) || candles.length < Number(period) + minBars + 5) {
+    return { ...base, reason: 'CANDLES_INSUFFICIENT' };
+  }
+  const window = candles.slice(-Math.max(20, Number(lookbackBars) || 60));
+  // window 是 candles 的尾部切片，pivot.index 是 window 下标，换算回 candles 下标才能索引 RSI。
+  const offset = candles.length - window.length;
+  const pivots = pivotLevels(window, actionName, pivotSpan);
+  if (pivots.length < 2) return { ...base, reason: 'NO_TWO_PIVOTS' };
+
+  const prev = pivots[pivots.length - 2];
+  const last = pivots[pivots.length - 1];
+  const barsBetween = last.index - prev.index;
+  const ageBars = window.length - 1 - last.index;
+  const pricePrev = Number(prev.price);
+  const priceLast = Number(last.price);
+  const rsiPrev = rsiAt(rsiValues, offset + prev.index, period);
+  const rsiLast = rsiAt(rsiValues, offset + last.index, period);
+  const detail = { pricePrev, priceLast, rsiPrev, rsiLast, barsBetween, ageBars, pivotSpan: Number(pivotSpan) || 2 };
+
+  if (rsiPrev == null || rsiLast == null) return { ...base, ...detail, reason: 'RSI_DATA_MISSING' };
+
+  // ① 价格必须创新极值
+  const priceExtreme = actionName === 'LONG' ? priceLast < pricePrev : priceLast > pricePrev;
+  if (!priceExtreme) return { ...base, ...detail, reason: 'PRICE_NOT_EXTREME' };
+
+  // ② RSI 必须反向（LONG: 后一个 RSI 更高；SHORT: 更低），且差值达到门槛
+  const rsiDelta = actionName === 'LONG' ? rsiLast - rsiPrev : rsiPrev - rsiLast;
+  if (!(rsiDelta >= Number(minRsiDelta))) return { ...base, ...detail, rsiDelta: Number(rsiDelta.toFixed(2)), reason: 'RSI_NOT_DIVERGENT' };
+
+  // ③ 两个 pivot 间隔太近时 Wilder 平滑会让对比失真
+  if (barsBetween < minBars) return { ...base, ...detail, rsiDelta: Number(rsiDelta.toFixed(2)), reason: 'PIVOTS_TOO_CLOSE' };
+  // ④ 陈旧背离不触发：最新 pivot 距今不能太远
+  if (ageBars > Math.max(1, Number(maxAgeBars) || 15)) return { ...base, ...detail, rsiDelta: Number(rsiDelta.toFixed(2)), reason: 'DIVERGENCE_STALE' };
+
+  return { ...base, ...detail, rsiDelta: Number(rsiDelta.toFixed(2)), confirmed: true, reason: null };
 }
 
 function classifyRsiTriggerValues(values, action, threshold, depthThreshold, triggerLookbackBars = 2, depthLookbackBars = 6) {
@@ -498,9 +568,12 @@ function superTrendMarketState(candles, period = 10, multiplier = 3, lookbackBar
   };
 }
 
-function shouldExitRulePosition({ profitable, rsiReverse, trendReverse, lossReverseCount = 0, lossExitConfirmBars = 2 } = {}) {
-  const profitExit = !!profitable && (!!rsiReverse || !!trendReverse);
-  const lossExit = !profitable && !!rsiReverse && !!trendReverse && Number(lossReverseCount) >= Number(lossExitConfirmBars || 2);
+function shouldExitRulePosition({ profitable, rsiReverse, trendReverse, divergenceReverse = false, lossReverseCount = 0, lossExitConfirmBars = 2 } = {}) {
+  // 盈利：任一反向信号即可退出（背离与 RSI/趋势同权）
+  const profitExit = !!profitable && (!!rsiReverse || !!trendReverse || !!divergenceReverse);
+  // 亏损：原本要求 RSI 与趋势同时反向，现在背离可独立构成反向；
+  //       但仍必须满足 N 根确认，不放松既有的非对称确认设计。
+  const lossExit = !profitable && ((!!rsiReverse && !!trendReverse) || !!divergenceReverse) && Number(lossReverseCount) >= Number(lossExitConfirmBars || 2);
   return { exit: profitExit || lossExit, profitExit, lossExit };
 }
 
@@ -592,6 +665,25 @@ class RuleAutoTrader {
   get cfg() { return this.config.get().ruleTrading || {}; }
   key(symbol, positionSide) { return `${normalizeSymbol(symbol)}|${String(positionSide || 'BOTH').toUpperCase()}`; }
   enabled() { return this.cfg.enabled === true; }
+  // 背离开关：默认开（照 exitOnIndicatorReverse 的 !false 惯例），同时管开仓与平仓。
+  divergenceEnabled() { return this.cfg.divergenceEnabled !== false; }
+  // 持仓的反转背离：持多要找顶背离（看跌）、持空要找底背离（看涨），
+  // 即用「与持仓相反的方向」去跑背离检测。
+  divergenceReversal(candles, action) {
+    const opposite = String(action).toUpperCase() === 'LONG' ? 'SHORT' : 'LONG';
+    return detectRsiDivergence(candles, rsiSeries(candles, Number(this.cfg.rsiPeriod || 14)), opposite, this.divergenceOpts());
+  }
+  divergenceOpts() {
+    const c = this.cfg;
+    return {
+      period: Number(c.rsiPeriod || 14),
+      lookbackBars: Math.max(20, Math.min(200, Number(c.divergenceLookbackBars ?? 60))),
+      pivotSpan: Math.max(1, Math.min(5, Number(c.divergencePivotSpan ?? 2))),
+      minRsiDelta: Math.max(0, Number(c.divergenceMinRsiDelta ?? 2)),
+      minBarsBetween: Math.max(2, Number(c.divergenceMinBarsBetween ?? 5)),
+      maxAgeBars: Math.max(1, Number(c.divergenceMaxAgeBars ?? 15))
+    };
+  }
   canContinue() { return this.running && this.enabled(); }
 
   statusLabel() {
@@ -691,17 +783,23 @@ class RuleAutoTrader {
         slope: Boolean(d?.rsiSlopeConfirmed ?? nested?.slopeConfirmed)
       };
     };
-    // RSI 三条件不短路，用累积条件统计才能保证漏斗单调
-    let passedDepth = 0, passedRecovery = 0, passedSlope = 0;
+    // RSI 三条件不短路，用累积条件统计才能保证漏斗单调。
+    // 靠背离通过的不计入三条件累积（两条通路互斥），单独走 RSI_DIVERGENCE 格。
+    let passedDepth = 0, passedRecovery = 0, passedSlope = 0, passedDivergence = 0;
     for (const d of rsiPool) {
+      const byDivergence = d?.triggerBy === 'DIVERGENCE' || d?.divergence?.confirmed === true;
+      if (byDivergence) { passedDivergence++; continue; }
       if (passedWholeRsi(d)) { passedDepth++; passedRecovery++; passedSlope++; continue; }
       const f = rsiFlags(d);
       if (f.depth) passedDepth++;
       if (f.depth && f.crossed) passedRecovery++;
       if (f.depth && f.crossed && f.slope) passedSlope++;
     }
+    // 背离的"进入数" = 到了 RSI 阶段但三条件没过的那批（只有它们会被判背离）
+    const enteredDivergence = Math.max(0, passedTrend - passedSlope);
+    const rsiTotalPassed = passedSlope + passedDivergence;
 
-    const passedVolume = Math.max(0, passedSlope - blockedAt('VOLUME'));
+    const passedVolume = Math.max(0, rsiTotalPassed - blockedAt('VOLUME'));
     const passedEntry = Math.max(0, passedVolume - blockedAt('ENTRY'));
     const passedRisk = Math.max(0, passedEntry - blockedAt('RISK'));
     const passedPlace = Math.max(0, passedRisk - blockedAt('PLACE'));
@@ -712,7 +810,8 @@ class RuleAutoTrader {
       { key: 'RSI_DEPTH', entered: passedTrend, passed: passedDepth, blocked: passedTrend - passedDepth },
       { key: 'RSI_RECOVERY', entered: passedDepth, passed: passedRecovery, blocked: passedDepth - passedRecovery },
       { key: 'RSI_SLOPE', entered: passedRecovery, passed: passedSlope, blocked: passedRecovery - passedSlope },
-      { key: 'VOLUME', entered: passedSlope, passed: passedVolume, blocked: blockedAt('VOLUME') },
+      { key: 'RSI_DIVERGENCE', entered: enteredDivergence, passed: passedDivergence, blocked: enteredDivergence - passedDivergence },
+      { key: 'VOLUME', entered: rsiTotalPassed, passed: passedVolume, blocked: blockedAt('VOLUME') },
       { key: 'ENTRY', entered: passedVolume, passed: passedEntry, blocked: blockedAt('ENTRY') },
       { key: 'RISK', entered: passedEntry, passed: passedRisk, blocked: blockedAt('RISK') },
       { key: 'PLACE', entered: passedRisk, passed: passedPlace, blocked: blockedAt('PLACE') }
@@ -842,6 +941,12 @@ class RuleAutoTrader {
       maxRuleSLPct: Number(c.maxRuleSLPct ?? 2.5),
       ruleTakeProfitRR: Number(c.ruleTakeProfitRR ?? 2),
       exitOnIndicatorReverse: c.exitOnIndicatorReverse !== false,
+      divergenceEnabled: c.divergenceEnabled !== false,
+      divergenceLookbackBars: Number(c.divergenceLookbackBars ?? 60),
+      divergencePivotSpan: Number(c.divergencePivotSpan ?? 2),
+      divergenceMinRsiDelta: Number(c.divergenceMinRsiDelta ?? 2),
+      divergenceMinBarsBetween: Number(c.divergenceMinBarsBetween ?? 5),
+      divergenceMaxAgeBars: Number(c.divergenceMaxAgeBars ?? 15),
       exitRsiLong: Number(c.exitRsiLong ?? 60),
       exitRsiShort: Number(c.exitRsiShort ?? 40),
       entryMode: 'V13.3_TREND_RSI_DEPTH_VOLUME_PULLBACK',
@@ -990,9 +1095,11 @@ class RuleAutoTrader {
     const key = `${normalizeSymbol(symbol)}|${timeframe}`;
     const effectiveTtl = ttlMs ?? (timeframe === '1m' ? 45000 : 240000);
     const cached = this.klineCache.get(key);
-    if (cached && Date.now() - cached.at < effectiveTtl) return cached.rows;
+    // 只有缓存长度够用才复用：缓存 key 不含 limit，若先到的是短请求，
+    // 后续需要更长历史的调用（如背离检测）会拿到旧短数组而不重抓。
+    if (cached && cached.limit >= limit && Date.now() - cached.at < effectiveTtl) return cached.rows;
     const rows = await this.binance.fetchKlines(symbol, timeframe, limit);
-    this.klineCache.set(key, { at: Date.now(), rows });
+    this.klineCache.set(key, { at: Date.now(), rows, limit });
     return rows;
   }
 
@@ -1261,7 +1368,7 @@ class RuleAutoTrader {
     }
 
     const [rows1m, rows5m] = await Promise.all([
-      this.getCachedKlines(symbol, '1m', 120, 5000),
+      this.getCachedKlines(symbol, '1m', 200, 5000),
       this.getCachedKlines(symbol, '5m', 90, 30000)
     ]);
     const c1 = closedCandles(rows1m);
@@ -1295,7 +1402,26 @@ class RuleAutoTrader {
     const rsiDepthLookback = Number(this.cfg.rsiDepthLookbackBars ?? 6);
     const rsi = rsiTrigger(c1, action, rsiPeriod, rsiThreshold, rsiTriggerLookback, rsiDepthThreshold, rsiDepthLookback);
     if (!rsi) return { ...base, stage: 'RSI', reason: 'RSI_DATA_UNAVAILABLE' };
-    if (!rsi.confirmed) {
+    // 背离是 RSI 三条件的"顺势替代触发"：只在三条件失败时才判，
+    // 保证两条通路互斥 —— 漏斗里 passedSlope + passedDivergence 不会重复计数。
+    let divergence = null;
+    if (!rsi.confirmed && this.divergenceEnabled()) {
+      divergence = detectRsiDivergence(c1, rsiSeries(c1, rsiPeriod), action, this.divergenceOpts());
+      if (divergence.confirmed) {
+        Logger.info('规则自动交易背离触发', {
+          traceId: ctx.traceId || null, symbol, action, type: divergence.type,
+          pricePrev: divergence.pricePrev, priceLast: divergence.priceLast,
+          rsiPrev: divergence.rsiPrev, rsiLast: divergence.rsiLast, rsiDelta: divergence.rsiDelta,
+          barsBetween: divergence.barsBetween, ageBars: divergence.ageBars
+        });
+      }
+    }
+    const divergenceConfirmed = !!(divergence && divergence.confirmed);
+    // 挂到 base 上，让后续所有返回分支（成交量/入场/风控/通过）都带上背离信息，
+    // 漏斗才能统计"靠背离通过"的数量，逐币诊断也能显示背离详情。
+    base.divergence = divergence || null;
+    base.triggerBy = rsi.confirmed ? 'RSI_CONDITIONS' : (divergenceConfirmed ? 'DIVERGENCE' : null);
+    if (!rsi.confirmed && !divergenceConfirmed) {
       return {
         ...base,
         stage: 'RSI',
@@ -1427,7 +1553,7 @@ class RuleAutoTrader {
       if (Date.now() - Number(this.exitCheckedAt.get(key) || 0) < 8000) continue;
       this.exitCheckedAt.set(key, Date.now());
       const [rows1m, rows5m] = await Promise.all([
-        this.getCachedKlines(p.symbol, '1m', 100, 5000),
+        this.getCachedKlines(p.symbol, '1m', 200, 5000),
         this.getCachedKlines(p.symbol, '5m', 80, 30000)
       ]);
       const c1 = closedCandles(rows1m), c5 = closedCandles(rows5m);
@@ -1440,29 +1566,34 @@ class RuleAutoTrader {
       const entry = Number(p.entryPrice || 0);
       const profitable = action === 'LONG' ? mark > entry : mark < entry;
       const trendReverseRaw = !!st5 && st5.direction !== (action === 'LONG' ? 1 : -1);
+      // 与持仓方向相反的背离才是反转信号：持多遇顶背离、持空遇底背离。
+      const divergenceReverse = this.divergenceEnabled() ? this.divergenceReversal(c1, action) : null;
+      const divergenceReverseHit = !!(divergenceReverse && divergenceReverse.confirmed);
       const candleTime = Number(c1.at(-1)?.openTime || 0);
       const reverseState = this.exitReverseState.get(key) || { candleTime: 0, bothCount: 0 };
       let lossConfirmed = false;
       if (candleTime > 0 && candleTime !== reverseState.candleTime) {
         reverseState.candleTime = candleTime;
-        if (!profitable && rsiReverse && trendReverseRaw) reverseState.bothCount += 1;
+        if (!profitable && ((rsiReverse && trendReverseRaw) || divergenceReverseHit)) reverseState.bothCount += 1;
         else reverseState.bothCount = 0;
         this.exitReverseState.set(key, reverseState);
       }
       const lossExitConfirmBars = Math.max(2, Number(this.cfg.lossExitConfirmBars ?? 2));
       lossConfirmed = !profitable && reverseState.bothCount >= lossExitConfirmBars;
-      const exitDecision = shouldExitRulePosition({ profitable, rsiReverse, trendReverse: trendReverseRaw, lossReverseCount: reverseState.bothCount, lossExitConfirmBars });
+      const exitDecision = shouldExitRulePosition({ profitable, rsiReverse, trendReverse: trendReverseRaw, divergenceReverse: divergenceReverseHit, lossReverseCount: reverseState.bothCount, lossExitConfirmBars });
       const exit = exitDecision.exit;
       if (!exit) continue;
       this.ruleExitBusy.add(key);
       try {
-        const reason = lossConfirmed ? 'LOSS_INDICATOR_INVALIDATED' : (rsiReverse ? (action === 'LONG' ? 'RSI_BEARISH_REVERSE' : 'RSI_BULLISH_REVERSE') : 'ST_5M_REVERSE');
+        const reason = lossConfirmed ? 'LOSS_INDICATOR_INVALIDATED'
+          : (divergenceReverseHit ? (action === 'LONG' ? 'DIVERGENCE_BEARISH' : 'DIVERGENCE_BULLISH')
+            : (rsiReverse ? (action === 'LONG' ? 'RSI_BEARISH_REVERSE' : 'RSI_BULLISH_REVERSE') : 'ST_5M_REVERSE'));
         const result = typeof this.emergency?.closePositionMarket === 'function'
           ? await this.emergency.closePositionMarket(p)
           : await this.binance.createCloseMarketOrder({ symbol: p.symbol, side: side === 'LONG' ? 'SELL' : 'BUY', quantity: p.contracts, positionSide: p.positionSide, newClientOrderId: `QP_RULE_EXIT_${Date.now().toString(36)}` });
-        this.lastExit = { symbol: p.symbol, positionSide: side, reason, mark, entry, rsiExitLevel, rsiReverse, trendReverse: trendReverseRaw, profitable, lossReverseCount: reverseState.bothCount, lossExitConfirmBars, orderId: result?.orderId || null, at: Date.now() };
+        this.lastExit = { symbol: p.symbol, positionSide: side, reason, mark, entry, rsiExitLevel, rsiReverse, trendReverse: trendReverseRaw, divergenceReverse: divergenceReverseHit, divergence: divergenceReverse || null, profitable, lossReverseCount: reverseState.bothCount, lossExitConfirmBars, orderId: result?.orderId || null, at: Date.now() };
         if (typeof this.state.setRuleCooldown === 'function') this.state.setRuleCooldown(p.symbol, Date.now() + Number(this.cfg.cooldownMinutes || 10) * 60000);
-        Logger.warn('规则自动交易指标平仓已发送', { symbol: p.symbol, positionSide: side, reason, mark, entry, orderId: result?.orderId || null });
+        Logger.warn('规则自动交易指标平仓已发送', { symbol: p.symbol, positionSide: side, reason, mark, entry, divergenceReverse: divergenceReverseHit, orderId: result?.orderId || null });
       } catch (e) {
         Logger.error('规则自动交易指标平仓失败', { symbol: p.symbol, positionSide: side, error: e, code: e?.code ?? null, status: e?.status ?? null });
       } finally {
@@ -1583,4 +1714,4 @@ class RuleAutoTrader {
   }
 }
 
-module.exports = { RuleAutoTrader, findSupportResistance, reversalConfirmation, atr, bollinger, macd, ema, bollingerAt, bollingerSeries, macdMomentum, detectBollingerPullback, rsiSeries, rsiTrigger, rsiExitReverse, volumeConfirmation, precisionEntry, superTrendMarketState, shouldExitRulePosition, utcDayKey, defaultRuleStats, normalizeRuleStats, classifyRsiTriggerValues };
+module.exports = { RuleAutoTrader, findSupportResistance, reversalConfirmation, atr, bollinger, macd, ema, bollingerAt, bollingerSeries, macdMomentum, detectBollingerPullback, rsiSeries, rsiTrigger, rsiExitReverse, volumeConfirmation, precisionEntry, superTrendMarketState, shouldExitRulePosition, utcDayKey, defaultRuleStats, normalizeRuleStats, classifyRsiTriggerValues, pivotLevels, rsiAt, detectRsiDivergence };

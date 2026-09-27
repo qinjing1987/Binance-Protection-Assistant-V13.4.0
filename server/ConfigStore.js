@@ -87,6 +87,14 @@ const DEFAULTS = {
     maxRuleSLPct: 2.5,
     ruleTakeProfitRR: 2.0,
     exitOnIndicatorReverse: true,
+    // RSI 顶底背离：作为 RSI 三条件的"顺势替代触发"（开仓 + 平仓同时生效）。
+    // 底背离=价格更低低点但 RSI 更高低点（看涨）；顶背离反之。默认开。
+    divergenceEnabled: true,
+    divergenceLookbackBars: 60,
+    divergencePivotSpan: 2,
+    divergenceMinRsiDelta: 2,
+    divergenceMinBarsBetween: 5,
+    divergenceMaxAgeBars: 15,
     lossExitConfirmBars: 2,
     exitRsiLong: 60,
     exitRsiShort: 40,

@@ -24,6 +24,37 @@ function rsiDecision({ action = 'LONG', depthReached, crossed, slopeConfirmed, d
   return { stage: 'RSI', action, status: 'SKIP', rsiDepthReached: depthReached, rsiCrossed: crossed, rsiSlopeConfirmed: slopeConfirmed, rsiDepthExtreme: depthExtreme };
 }
 
+// 漏斗结构断言：主链严格单调，RSI 背离是"旁路"而非链环，单独校验它的不变式。
+// 主链：FUNDING → TREND → RSI_DEPTH → RSI_RECOVERY → RSI_SLOPE →(并入背离)→ VOLUME → ENTRY → RISK → PLACE
+function assertFunnelShape(f) {
+  const byKey = Object.fromEntries(f.stages.map(s => [s.key, s]));
+  let prev = Infinity;
+  for (const k of ['FUNDING', 'TREND', 'RSI_DEPTH', 'RSI_RECOVERY', 'RSI_SLOPE']) {
+    const s = byKey[k];
+    assert.ok(s, `缺少阶段 ${k}`);
+    assert.ok(s.passed <= s.entered, `${k}: passed(${s.passed}) 不得超过 entered(${s.entered})`);
+    assert.ok(s.passed <= prev, `${k}: passed 必须单调不增`);
+    assert.ok(s.blocked >= 0, `${k}: blocked 不得为负`);
+    prev = s.passed;
+  }
+  const div = byKey.RSI_DIVERGENCE;
+  assert.ok(div, '缺少 RSI_DIVERGENCE 阶段');
+  // 背离的"进入数"= 到了 RSI 但三条件没过的币（只有它们会被判背离）
+  assert.equal(div.entered, Math.max(0, byKey.TREND.passed - byKey.RSI_SLOPE.passed), '背离进入数应等于三条件失败者数量');
+  assert.ok(div.passed <= div.entered, '背离通过数不得超过进入数');
+  // 主链在 RSI 之后的入口 = 三条件通过 + 背离通过（两条通路互斥，不重复计数）
+  assert.equal(byKey.VOLUME.entered, byKey.RSI_SLOPE.passed + div.passed, 'Volume 入口应等于三条件通过 + 背离通过');
+  let p2 = byKey.VOLUME.passed;
+  assert.ok(p2 <= byKey.VOLUME.entered);
+  for (const k of ['ENTRY', 'RISK', 'PLACE']) {
+    const s = byKey[k];
+    assert.ok(s, `缺少阶段 ${k}`);
+    assert.ok(s.passed <= s.entered, `${k}: passed 不得超过 entered`);
+    assert.ok(s.passed <= p2, `${k}: passed 必须单调不增`);
+    p2 = s.passed;
+  }
+}
+
 test('V13.4.0：readVersion 返回 package.json 的版本，与 RELEASE_VERSION.txt 一致', () => {
   const pkgVersion = require('../package.json').version;
   assert.equal(readVersion(), pkgVersion);
@@ -85,14 +116,7 @@ test('V13.4.0：漏斗各阶段通过人数单调不增，且不超过候选总�
   assert.equal(byKey.RISK.passed, 2);
   assert.equal(byKey.PLACE.passed, 2);
 
-  // 单调性：entered 与 passed 都不得回升，且 passed <= entered
-  let prevPassed = Infinity;
-  for (const s of f.stages) {
-    assert.ok(s.passed <= s.entered, `${s.key}: passed(${s.passed}) 不得超过 entered(${s.entered})`);
-    assert.ok(s.passed <= prevPassed, `${s.key}: passed 必须单调不增`);
-    assert.ok(s.blocked >= 0, `${s.key}: blocked 不得为负`);
-    prevPassed = s.passed;
-  }
+  assertFunnelShape(f);
   assert.ok(f.stages[0].entered <= f.candidates);
 });
 
@@ -140,7 +164,7 @@ test('V13.4.0：candidates=0（整轮被闸门跳过）时漏斗不炸且全为 
   const t = makeTrader();
   const f = t.buildFunnel({ decisions: [], candidates: 0, ordersPlaced: 0, indicatorPass: 0 });
   assert.equal(f.candidates, 0);
-  assert.equal(f.stages.length, 9);
+  assert.equal(f.stages.length, 10);
   for (const s of f.stages) {
     assert.equal(s.passed, 0);
     assert.equal(s.entered, 0);
@@ -220,9 +244,7 @@ test('V13.4.0：真实 scan() 端到端把 funnel 写进 lastSummary', async () 
   assert.equal(byKey.RSI_SLOPE.passed, 8, '12 - 4 斜率不确认');
   assert.equal(byKey.RISK.passed, 0, '8 个全通过被风控拦下');
   assert.equal(f.stages[0].entered, 40);
-  // 全链单调
-  let prev = Infinity;
-  for (const s of f.stages) { assert.ok(s.passed <= prev, `${s.key} 必须单调不增`); prev = s.passed; }
+  assertFunnelShape(f);
 });
 
 test('V13.4.0：renderRuleFunnel 把各阶段人数渲染到正确的格子（功能性验证）', () => {
@@ -421,12 +443,12 @@ test('V13.4.0：前端已声明 renderRuleFunnel，且漏斗格子数量与后�
   // 前端不能残留旧的二值 stage() 判定 bug
   assert.ok(!script.includes("startsWith('ENTRY_')"), '旧的 ENTRY_ 前缀判定必须已移除');
 
-  // 漏斗容器应有 10 格（候选池 + 9 个后端阶段）
+  // 漏斗容器应有 11 格（候选池 + 10 个后端阶段）
   const flow = html.match(/<div class="rule-flow">([\s\S]*?)<\/div>\s*<div class="rule-funnel-note"/)?.[1] || '';
   const steps = [...flow.matchAll(/class="flow-step/g)].length;
-  assert.equal(steps, 10, `漏斗应为 10 格，实际 ${steps}`);
-  // 10 格必须有唯一 id，且与后端阶段 key 一一对应
-  for (const id of ['flowRank', 'flowFunding', 'flowTrend', 'flowRsiDepth', 'flowRsiRecovery', 'flowRsiSlope', 'flowVol', 'flowEntry', 'flowRisk', 'flowPlace']) {
+  assert.equal(steps, 11, `漏斗应为 11 格，实际 ${steps}`);
+  // 11 格必须有唯一 id，且与后端阶段 key 一一对应
+  for (const id of ['flowRank', 'flowFunding', 'flowTrend', 'flowRsiDepth', 'flowRsiRecovery', 'flowRsiSlope', 'flowRsiDivergence', 'flowVol', 'flowEntry', 'flowRisk', 'flowPlace']) {
     assert.ok(flow.includes(`id="${id}"`), `缺少漏斗格子 ${id}`);
   }
 });
@@ -468,6 +490,5 @@ test('V13.4.0：费率拦截计入 FUNDING 阶段，漏斗仍单调', () => {
   assert.equal(byKey.FUNDING.blocked, 2);
   assert.equal(byKey.TREND.entered, 2);
   assert.equal(byKey.TREND.passed, 1);
-  let prev = Infinity;
-  for (const s of f.stages) { assert.ok(s.passed <= prev, `${s.key} 必须单调不增`); prev = s.passed; }
+  assertFunnelShape(f);
 });
