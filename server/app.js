@@ -103,6 +103,10 @@ async function createApplicationServer({ userDataDir, credentials, configStore }
   runtime.lastSyncAt = 0;
   runtime.markWsConnected = false;
   runtime.markWsLastEventAt = 0;
+  // 当前委托快照：由 scheduledTasks 周期性刷新，前端只读快照，不直接打 Binance。
+  runtime.openOrders = [];
+  runtime.openOrdersAt = 0;
+  runtime.openOrdersError = null;
   const config = configStore;
   const binance = new BinanceClient({ credentialStore: credentials, config });
   const userStream = new UserDataStream(binance);
@@ -396,6 +400,82 @@ async function createApplicationServer({ userDataDir, credentials, configStore }
     } catch (e) { runtime.status = 'ERROR'; runtime.lastError = errorSummary(e); Logger.error('系统启动失败', { error: e, code: e.code || null, status: e.status || null }); }
   }
 
+  // 当前委托快照。普通挂单每 10 秒刷新；Algo（SL/TP/追踪）每 30 秒刷新一次 ——
+  // 遵循原作者"不频繁轮询 Algo 接口"的限流考虑（/api/positions/diagnostics 也是按需读取）。
+  // 失败时保留上一次快照并记录错误，绝不清空成"没有委托"，避免误导。
+  let lastAlgoOrdersAt = 0;
+  const ACTIVE_ORDER_STATUSES = new Set(['NEW', 'WORKING', 'PARTIALLY_FILLED']);
+  const isActiveOrder = (o) => ACTIVE_ORDER_STATUSES.has(String(o?.algoStatus || o?.status || o?.strategyStatus || '').toUpperCase());
+  const orderSource = (clientId) => {
+    const id = String(clientId || '');
+    if (/^QP_RULE_/i.test(id)) return 'RULE';
+    if (/^QP_/i.test(id)) return 'PROTECT';
+    return 'MANUAL';
+  };
+  function normalizeAlgoOrder(o) {
+    const qty = Number(o.quantity ?? o.origQty ?? 0);
+    const clientId = o.clientAlgoId ?? o.clientOrderId ?? o.newClientStrategyId ?? null;
+    return {
+      kind: 'ALGO',
+      symbol: normalizeSymbol(o.symbol),
+      positionSide: String(o.positionSide || 'BOTH').toUpperCase(),
+      side: String(o.side || '').toUpperCase(),
+      type: String(o.orderType || o.type || o.strategyType || 'ALGO').toUpperCase(),
+      price: Number(o.triggerPrice ?? o.stopPrice ?? o.activatePrice ?? 0),
+      origQty: qty,
+      executedQty: 0,
+      remainingQty: qty,
+      status: String(o.algoStatus || o.status || '').toUpperCase(),
+      clientId,
+      source: orderSource(clientId),
+      reduceOnly: o.reduceOnly === true || o.closePosition === true,
+      updateTime: Number(o.bookTime ?? o.time ?? o.updateTime ?? 0)
+    };
+  }
+  function normalizeNormalOrder(o) {
+    const qty = Number(o.origQty || 0);
+    const done = Number(o.executedQty || 0);
+    return {
+      kind: 'ORDER',
+      symbol: normalizeSymbol(o.symbol),
+      positionSide: String(o.positionSide || 'BOTH').toUpperCase(),
+      side: String(o.side || '').toUpperCase(),
+      type: String(o.type || 'LIMIT').toUpperCase(),
+      price: Number(o.price || 0) || Number(o.stopPrice || 0),
+      origQty: qty,
+      executedQty: done,
+      remainingQty: Math.max(0, qty - done),
+      status: String(o.status || '').toUpperCase(),
+      clientId: o.clientOrderId || null,
+      source: orderSource(o.clientOrderId),
+      reduceOnly: o.reduceOnly === true,
+      updateTime: Number(o.updateTime || o.time || 0)
+    };
+  }
+  async function refreshOpenOrders() {
+    const now = Date.now();
+    const wantAlgo = now - lastAlgoOrdersAt >= 29000;
+    try {
+      const [normal, algo] = await Promise.all([
+        typeof binance.fetchOpenOrders === 'function' ? binance.fetchOpenOrders() : Promise.resolve([]),
+        wantAlgo && typeof binance.fetchOpenAlgoOrders === 'function' ? binance.fetchOpenAlgoOrders() : Promise.resolve(null)
+      ]);
+      const merged = [
+        ...(Array.isArray(algo) ? algo.filter(isActiveOrder).map(normalizeAlgoOrder) : []),
+        ...(Array.isArray(normal) ? normal.filter(isActiveOrder).map(normalizeNormalOrder) : [])
+      ];
+      // Algo 未到刷新点时，沿用上一次快照里的 Algo 部分，避免它们从列表里闪没。
+      const keptAlgo = Array.isArray(algo) ? [] : (runtime.openOrders || []).filter(o => o.kind === 'ALGO');
+      runtime.openOrders = [...keptAlgo, ...merged];
+      runtime.openOrdersAt = now;
+      runtime.openOrdersError = null;
+      if (Array.isArray(algo)) lastAlgoOrdersAt = now;
+    } catch (e) {
+      runtime.openOrdersError = errorSummary(e);
+      Logger.error('开放委托同步失败', { error: e, code: e.code || null, status: e.status || null });
+    }
+  }
+
   async function scheduledTasks() {
     if (!started) return;
     try { runtime.positions = (await monitor.sync('TIMER')).map(p => {
@@ -429,6 +509,8 @@ async function createApplicationServer({ userDataDir, credentials, configStore }
       Logger.warn('规则自动交易调度自愈：检测到已启用但未运行，已自动重新启动');
     }
     runtime.ruleTrading = ruleTrader.getStatus();
+    // 放在最后：委托快照不是关键路径，网络慢时不应拖住仓位同步/自愈看门狗。
+    await refreshOpenOrders();
   }
 
   const timer = setInterval(() => scheduledTasks().catch(() => {}), 10000);
@@ -490,7 +572,11 @@ async function createApplicationServer({ userDataDir, credentials, configStore }
       version: runtime.version, lastSyncAt: runtime.lastSyncAt,
       timeOffsetMs: Number(binance.timeOffset || 0), lastTimeSyncAt: Number(binance.lastTimeSyncAt || 0),
       hedgeMode: binance.actualHedgeMode, baseUrl: binance.baseUrl(),
-      positions: (runtime.positions || []).map(decoratePosition), ranking: runtime.ranking || ranking.getCached(), supertrend: runtime.supertrend || supertrend.getStatus(), ruleTrading: ruleTrader.getStatus(), lastAI: runtime.lastAI,
+      positions: (runtime.positions || []).map(decoratePosition),
+      openOrders: runtime.openOrders || [],
+      openOrdersAt: Number(runtime.openOrdersAt || 0),
+      openOrdersError: runtime.openOrdersError || null,
+      ranking: runtime.ranking || ranking.getCached(), supertrend: runtime.supertrend || supertrend.getStatus(), ruleTrading: ruleTrader.getStatus(), lastAI: runtime.lastAI,
       lastError: runtime.lastError, liquidation: liq, daily,
       config: config.get(), credentials: credentials.masked(), aiEmergencyStopped: !!state.rawGet('aiEmergencyStopped', false),
       dataDir: userDataDir

@@ -341,6 +341,74 @@ test('V13.4.0：规则面板跨满 grid-main 整行，不再被挤在窄列里',
   assert.ok(/try\{renderRuleFunnel\(sum,x\)\}catch/.test(script), 'renderRuleFunnel 调用必须被 try/catch 包裹');
 });
 
+test('V13.4.0：当前委托面板紧跟实时持仓，且在 refresh 中被渲染', () => {
+  const html = fs.readFileSync(path.join(root, 'frontend/index.html'), 'utf8');
+  const positionsAt = html.indexOf('id="positionsPanel"');
+  const ordersAt = html.indexOf('id="ordersPanel"');
+  assert.ok(ordersAt > positionsAt && positionsAt > 0, '当前委托面板必须在实时持仓面板之后');
+
+  const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1] || '';
+  assert.ok(/function renderOrders\s*\(/.test(script), 'renderOrders 必须已声明');
+  assert.ok(script.includes('renderPositions();renderOrders();'), 'refresh 中必须调用 renderOrders');
+  // 数据必须来自快照，前端不得直接打 Binance
+  assert.ok(script.includes('runtimeOpenOrders=s.openOrders||[]'), '应从 /api/status 的快照读取');
+});
+
+test('V13.4.0：后端把当前委托快照放进 /api/status，且失败时不清空快照', () => {
+  const app = fs.readFileSync(path.join(root, 'server/app.js'), 'utf8');
+  assert.ok(app.includes('openOrders: runtime.openOrders || []'), '/api/status 必须暴露 openOrders');
+  assert.ok(app.includes('openOrdersError: runtime.openOrdersError'), '/api/status 必须暴露快照错误');
+  assert.ok(/async function refreshOpenOrders\s*\(/.test(app), '必须有 refreshOpenOrders');
+  assert.ok(app.includes('await refreshOpenOrders()'), 'scheduledTasks 必须周期刷新');
+
+  // 失败分支必须保留旧快照（只在成功分支赋值），否则会把"读取失败"显示成"没有委托"
+  const fn = app.match(/async function refreshOpenOrders\(\) \{[\s\S]*?\n  \}/)?.[0] || '';
+  assert.ok(fn, '应能取出 refreshOpenOrders 函数体');
+  const catchBlock = fn.slice(fn.indexOf('} catch (e) {'));
+  assert.ok(!catchBlock.includes('runtime.openOrders ='), 'catch 分支不得清空 openOrders 快照');
+  // Algo 未到刷新点时必须沿用上次快照，避免条件单从列表里闪没
+  assert.ok(fn.includes('keptAlgo'), '应保留未刷新时的 Algo 委托');
+});
+
+test('V13.4.0：renderOrders 正确渲染委托行（功能性验证）', () => {
+  const html = fs.readFileSync(path.join(root, 'frontend/index.html'), 'utf8');
+  const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1] || '';
+  const src = script.match(/function renderOrders\(\)\{[\s\S]*?\n\}/)?.[0];
+  assert.ok(src, '应能取出 renderOrders 函数体');
+
+  const els = { orders: { innerHTML: '' }, ordersNote: { textContent: '' } };
+  const $ = (id) => els[id];
+  const esc = (s) => String(s == null ? '' : s);
+  const money = (v, n) => Number(v || 0).toFixed(n == null ? 2 : n);
+  const fmtTime = () => '12:00:00';
+  // 每次用一组快照构造一次函数：真实代码里 runtimeOpenOrders 是模块级变量、由 refresh() 重新赋值，
+  // 函数参数绑定无法反映后续变更，所以按场景分别构造。
+  const build = (orders, at, err) => new Function(
+    '$', 'esc', 'money', 'fmtTime', 'runtimeOpenOrders', 'runtimeOpenOrdersAt', 'runtimeOpenOrdersError',
+    `${src}\nreturn renderOrders;`
+  )($, esc, money, fmtTime, orders, at, err);
+
+  const two = [
+    { kind: 'ORDER', symbol: 'BTCUSDT', positionSide: 'LONG', side: 'BUY', type: 'LIMIT', price: 50000, origQty: 2, executedQty: 0, status: 'NEW', source: 'RULE', updateTime: 1 },
+    { kind: 'ALGO', symbol: 'ETHUSDT', positionSide: 'SHORT', side: 'SELL', type: 'STOP_MARKET', price: 3000, origQty: 1, executedQty: 0, status: 'WORKING', source: 'PROTECT', reduceOnly: true, updateTime: 2 }
+  ];
+  build(two, 1, null)();
+  assert.ok(els.orders.innerHTML.includes('BTCUSDT'), '应渲染规则 LIMIT 委托');
+  assert.ok(els.orders.innerHTML.includes('ETHUSDT'), '应渲染保护 Algo 委托');
+  assert.ok(els.orders.innerHTML.includes('规则') && els.orders.innerHTML.includes('保护'), '应显示来源标签');
+  assert.ok(els.orders.innerHTML.includes('只减仓'), 'Algo 只减仓标记应显示');
+  assert.ok(els.ordersNote.textContent.includes('共 2 笔'), '备注应显示委托笔数');
+
+  // 空快照 → 显示"当前无委托"，不抛错
+  build([], 1, null)();
+  assert.ok(els.orders.innerHTML.includes('当前无委托'));
+  assert.ok(els.ordersNote.textContent.includes('共 0 笔'));
+
+  // 快照异常 → 备注显示异常而不是假装没有委托
+  build([], 1, { message: '限流' })();
+  assert.ok(els.ordersNote.textContent.includes('快照异常'), '读取失败必须显性提示');
+});
+
 test('V13.4.0：前端已声明 renderRuleFunnel，且漏斗格子数量与后端阶段数一致', () => {
   const html = fs.readFileSync(path.join(root, 'frontend/index.html'), 'utf8');
   const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1] || '';
