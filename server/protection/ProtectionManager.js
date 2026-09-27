@@ -1177,6 +1177,9 @@ class ProtectionManager {
     const tpEntryDistancePct = fromEntryPct(effectiveTP);
     const rr = slEntryDistancePct > 0 && tpEntryDistancePct != null ? Number((tpEntryDistancePct / slEntryDistancePct).toFixed(2)) : null;
     const leverage = Number(p.leverage) > 0 ? Number(p.leverage) : null;
+    // 保证金基准：notional/杠杆 优先，isolatedMargin 回退 —— 与 app.js 的 decoratePosition
+    // 保持同一优先级（两处顺序相反会让「持仓表」与「选中仓诊断」对同一仓位算出不同收益率）。
+    // 之所以不用 isolatedMargin 优先：币安该字段包含未实现盈亏，会让 ROI 分母随盈亏漂移、自我指涉。
     const positionMarginBasis = leverage != null && Math.abs(Number(p.notional || 0)) > 0
       ? Math.abs(Number(p.notional || 0)) / leverage
       : Number(p.isolatedMargin || 0) || null;

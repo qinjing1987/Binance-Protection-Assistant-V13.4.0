@@ -652,7 +652,7 @@ function selectPosition(i){
   $('selActualSL').textContent='读取中…';$('selActualTP').textContent='读取中…';
   $('selProtect').innerHTML=statusHtml('UNKNOWN');
   $('selLev').textContent='读取中…';
-  $('selMargin').textContent=money(p.isolatedMargin||0,2);
+  $('selMargin').textContent=money(p.marginBasis!=null?p.marginBasis:(p.isolatedMargin||0),2);
   $('selLiq').textContent=p.liquidationPrice?money(p.liquidationPrice,6):'—';
   const d=p.liquidationPrice&&p.markPrice?Math.abs(Number(p.markPrice)-Number(p.liquidationPrice))/Number(p.markPrice)*100:null;
   $('selLiqPct').textContent=d!=null?d.toFixed(3)+'%':'—';

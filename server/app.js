@@ -263,9 +263,13 @@ async function createApplicationServer({ userDataDir, credentials, configStore }
     const notional = Math.abs(Number(p.notional || 0)) > 0
       ? Math.abs(Number(p.notional || 0))
       : (markPrice > 0 && qty > 0 ? markPrice * qty : 0);
-    const marginBasis = Number(p.isolatedMargin || 0) > 0
-      ? Number(p.isolatedMargin)
-      : (leverage > 0 && notional > 0 ? notional / leverage : 0);
+    // 保证金基准：notional/杠杆 优先，isolatedMargin 回退 —— 与 ProtectionManager.diagnostics 一致。
+    // 原先此处以 isolatedMargin 优先，而诊断接口以 notional/杠杆 优先，导致
+    // 「持仓表」与「选中仓诊断」对同一仓位算出不同的收益率。统一为 notional/杠杆：
+    // 币安的 isolatedMargin 含未实现盈亏，会让 ROI 分母随盈亏漂移，不适合当基准。
+    const marginBasis = leverage > 0 && notional > 0
+      ? notional / leverage
+      : Number(p.isolatedMargin || 0);
     const positionReturnPct = marginBasis > 0 ? Number((effectivePnl / marginBasis * 100).toFixed(2)) : null;
     const priceMovePct = entryPrice > 0 && markPrice > 0
       ? Number((((markPrice - entryPrice) / entryPrice * 100) * (side === 'short' ? -1 : 1)).toFixed(3))
@@ -278,6 +282,12 @@ async function createApplicationServer({ userDataDir, credentials, configStore }
       positionReturnPct,
       positionReturnPctSource: 'UNREALIZED_PNL_DIV_MARGIN',
       priceMovePct,
+      // 把 ROI 实际使用的基准和名义价值一并暴露出去。
+      // 否则前端只能拿原始 p.isolatedMargin 显示保证金 —— 当币安该字段为 0 时
+      // 会出现「保证金 0.00，但收益率非 0」的同屏自相矛盾。
+      marginBasis: Number(marginBasis.toFixed(8)),
+      marginBasisSource: leverage > 0 && notional > 0 ? 'NOTIONAL_DIV_LEVERAGE' : (Number(p.isolatedMargin || 0) > 0 ? 'ISOLATED_MARGIN' : 'NONE'),
+      notional: Number(notional.toFixed(8)),
       protectionSL: meta.activeSL ?? meta.targetSL ?? null,
       protectionTP: meta.activeTP ?? meta.targetTP ?? null,
       protectionVerifiedAt: meta.verifiedAt || null,
