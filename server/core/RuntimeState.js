@@ -1,7 +1,10 @@
 // 只保存当前进程状态，不保存秘密。
+const { readVersion } = require('./version');
+
 class RuntimeState {
   constructor() {
-    this.version = '13.3.5';
+    // 单一真相源：读 package.json，避免与前端/日志版本号漂移。
+    this.version = readVersion();
     this.status = 'STARTING';
     this.wsConnected = false;
     this.positions = [];

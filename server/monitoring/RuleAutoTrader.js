@@ -642,6 +642,98 @@ class RuleAutoTrader {
     };
   }
 
+  // 逐阶段通过率漏斗。
+  // 语义是「通过人数」而非「失败人数」：每一格 = 走到该阶段且全部条件通过的币数，
+  // 因此天然单调不增。用单值 stage 计数（而非 reasonCounts）保证一币只算一次 ——
+  // RSI 阶段一个币可能同时命中深度/回升/斜率多个 reasons，相加会超过候选总数。
+  buildFunnel({ decisions, candidates, ordersPlaced, indicatorPass }) {
+    const list = Array.isArray(decisions) ? decisions : [];
+    const blockedAt = (name) => list.filter(d => d && d.stage === name).length;
+
+    // 诚实性保障：任何未通过但没打 stage 的决策都会让漏斗失真（会被静默算进 RSI 阶段）。
+    // 生产代码所有返回点都已打标记；这里兜底是为了让"忘记打标记"这种 bug 显性化，而不是给出貌似合理的错数。
+    const KNOWN = ['PRECHECK', 'TREND', 'RSI', 'VOLUME', 'ENTRY', 'RISK', 'PASS', 'PLACE', 'ERROR'];
+    const unstaged = list.filter(d => {
+      if (!d) return false;
+      if (d.status === 'READY' || d.status === 'ORDER_PLACED') return false;
+      return !KNOWN.includes(d.stage);
+    }).length;
+
+    // 进入趋势阶段前出局：前置校验未过 + 评估异常
+    const blockedPreTrend = blockedAt('PRECHECK') + blockedAt('ERROR');
+    const enteredTrend = Math.max(0, Number(candidates || 0) - blockedPreTrend);
+    const passedTrend = Math.max(0, enteredTrend - blockedAt('TREND'));
+
+    // 进入 RSI 的池子 = 通过趋势的币（RSI 失败者 + 继续往后走的全部币）
+    const rsiPool = list.filter(d => ['RSI', 'VOLUME', 'ENTRY', 'RISK', 'PASS', 'PLACE'].includes(d?.stage));
+    // 能走到 VOLUME 及之后，在构造上就等价于 RSI 三条件全过 —— 这些返回对象不携带
+    // RSI 布尔量（只有 rsi 数值），所以必须按 stage 判定，不能只看字段。
+    const passedWholeRsi = (d) => ['VOLUME', 'ENTRY', 'RISK', 'PASS', 'PLACE'].includes(d?.stage);
+    // RSI 失败时 rsi 是数值、布尔量在顶层；通过时 rsi 是对象。两种形状统一取。
+    const rsiFlags = (d) => {
+      const nested = d?.rsi && typeof d.rsi === 'object' ? d.rsi : null;
+      return {
+        depth: Boolean(d?.rsiDepthReached ?? nested?.depthReached),
+        crossed: Boolean(d?.rsiCrossed ?? nested?.crossed),
+        slope: Boolean(d?.rsiSlopeConfirmed ?? nested?.slopeConfirmed)
+      };
+    };
+    // RSI 三条件不短路，用累积条件统计才能保证漏斗单调
+    let passedDepth = 0, passedRecovery = 0, passedSlope = 0;
+    for (const d of rsiPool) {
+      if (passedWholeRsi(d)) { passedDepth++; passedRecovery++; passedSlope++; continue; }
+      const f = rsiFlags(d);
+      if (f.depth) passedDepth++;
+      if (f.depth && f.crossed) passedRecovery++;
+      if (f.depth && f.crossed && f.slope) passedSlope++;
+    }
+
+    const passedVolume = Math.max(0, passedSlope - blockedAt('VOLUME'));
+    const passedEntry = Math.max(0, passedVolume - blockedAt('ENTRY'));
+    const passedRisk = Math.max(0, passedEntry - blockedAt('RISK'));
+    const passedPlace = Math.max(0, passedRisk - blockedAt('PLACE'));
+
+    const stages = [
+      { key: 'TREND', entered: enteredTrend, passed: passedTrend, blocked: blockedAt('TREND') },
+      { key: 'RSI_DEPTH', entered: passedTrend, passed: passedDepth, blocked: passedTrend - passedDepth },
+      { key: 'RSI_RECOVERY', entered: passedDepth, passed: passedRecovery, blocked: passedDepth - passedRecovery },
+      { key: 'RSI_SLOPE', entered: passedRecovery, passed: passedSlope, blocked: passedRecovery - passedSlope },
+      { key: 'VOLUME', entered: passedSlope, passed: passedVolume, blocked: blockedAt('VOLUME') },
+      { key: 'ENTRY', entered: passedVolume, passed: passedEntry, blocked: blockedAt('ENTRY') },
+      { key: 'RISK', entered: passedEntry, passed: passedRisk, blocked: blockedAt('RISK') },
+      { key: 'PLACE', entered: passedRisk, passed: passedPlace, blocked: blockedAt('PLACE') }
+    ];
+
+    // 参数敏感度：只在 RSI 深度 0 通过时给「放宽到多少才有第一个币」，用现有数据推算而非猜阈值。
+    let rsiSensitivity = null;
+    if (passedDepth === 0 && rsiPool.length) {
+      const extremes = (dir) => rsiPool
+        .filter(d => d?.action === dir)
+        .map(d => Number(d?.rsiDepthExtreme ?? (d?.rsi && typeof d.rsi === 'object' ? d.rsi.depthExtreme : NaN)))
+        .filter(Number.isFinite);
+      const longExtremes = extremes('LONG');
+      const shortExtremes = extremes('SHORT');
+      rsiSensitivity = {
+        longCurrentDepth: Number(this.cfg.rsiLongDepth ?? 35),
+        shortCurrentDepth: Number(this.cfg.rsiShortDepth ?? 65),
+        longNeedsDepth: longExtremes.length ? Number(Math.min(...longExtremes).toFixed(2)) : null,
+        shortNeedsDepth: shortExtremes.length ? Number(Math.max(...shortExtremes).toFixed(2)) : null
+      };
+    }
+
+    return {
+      candidates: Number(candidates || 0),
+      preTrendBlocked: blockedPreTrend,
+      indicatorPass: Number(indicatorPass || 0),
+      ordersPlaced: Number(ordersPlaced || 0),
+      stages,
+      rsiSensitivity,
+      // >0 表示有决策未打 stage 标记，漏斗数字不可信，前端应显示告警而不是照常展示。
+      unstaged,
+      degraded: unstaged > 0
+    };
+  }
+
   saveRuleStats(stats) {
     const normalized = normalizeRuleStats(stats);
     this.localRuleStats = normalized;
@@ -914,20 +1006,20 @@ class RuleAutoTrader {
       const gate = typeof this.risk.canRuleAutoTrade === 'function' ? await this.risk.canRuleAutoTrade() : await this.risk.canAutoTrade();
       if (!gate.ok) {
         Logger.warn('规则自动交易风控拦截', { traceId, reason: gate.reason });
-        this.lastSummary = { traceId, candidates: 0, ordersPlaced: 0, pendingOrders: this.pending.size, eligible: 0, skipped: gate.reason, reasonCounts: { [gate.reason]: 1 }, decisions: [], updatedAt: Date.now() };
+        this.lastSummary = { traceId, candidates: 0, ordersPlaced: 0, pendingOrders: this.pending.size, eligible: 0, skipped: gate.reason, reasonCounts: { [gate.reason]: 1 }, funnel: this.buildFunnel({ decisions: [], candidates: 0, ordersPlaced: 0, indicatorPass: 0 }), decisions: [], updatedAt: Date.now() };
         this.lastSuccessfulAt = Date.now();
         return this.getStatus();
       }
       if (positions.length >= Number(this.cfg.maxPositions || 1)) {
         Logger.info('规则自动交易达到最大持仓数，跳过本轮', { traceId, positions: positions.length, maxPositions: Number(this.cfg.maxPositions || 1) });
-        this.lastSummary = { traceId, candidates: 0, ordersPlaced: 0, pendingOrders: this.pending.size, eligible: 0, skipped: '达到最大持仓数', reasonCounts: { MAX_POSITIONS: positions.length }, decisions: [], updatedAt: Date.now() };
+        this.lastSummary = { traceId, candidates: 0, ordersPlaced: 0, pendingOrders: this.pending.size, eligible: 0, skipped: '达到最大持仓数', reasonCounts: { MAX_POSITIONS: positions.length }, funnel: this.buildFunnel({ decisions: [], candidates: 0, ordersPlaced: 0, indicatorPass: 0 }), decisions: [], updatedAt: Date.now() };
         this.lastSuccessfulAt = Date.now();
         return this.getStatus();
       }
       if (!this.canContinue()) return this.getStatus();
       if (this.pending.size >= Number(this.cfg.maxPendingOrders || 2)) {
         Logger.info('规则自动交易达到最大待成交 LIMIT 数，跳过本轮', { traceId, pendingOrders: this.pending.size, maxPendingOrders: Number(this.cfg.maxPendingOrders || 2) });
-        this.lastSummary = { traceId, candidates: 0, ordersPlaced: 0, pendingOrders: this.pending.size, eligible: 0, skipped: '达到最大待成交 LIMIT', reasonCounts: { MAX_PENDING_ORDERS: this.pending.size }, decisions: [], updatedAt: Date.now() };
+        this.lastSummary = { traceId, candidates: 0, ordersPlaced: 0, pendingOrders: this.pending.size, eligible: 0, skipped: '达到最大待成交 LIMIT', reasonCounts: { MAX_PENDING_ORDERS: this.pending.size }, funnel: this.buildFunnel({ decisions: [], candidates: 0, ordersPlaced: 0, indicatorPass: 0 }), decisions: [], updatedAt: Date.now() };
         this.lastSuccessfulAt = Date.now();
         return this.getStatus();
       }
@@ -968,6 +1060,7 @@ class RuleAutoTrader {
         if (livePositions.length >= maxPositions) {
           d.eligible = false;
           d.status = 'SKIP';
+          d.stage = 'PLACE';
           d.reason = 'MAX_POSITIONS_LIVE';
           continue;
         }
@@ -975,12 +1068,14 @@ class RuleAutoTrader {
         if (this.pending.size >= maxPendingOrders) {
           d.eligible = false;
           d.status = 'SKIP';
+          d.stage = 'PLACE';
           d.reason = 'MAX_PENDING_ORDERS_LIVE';
           continue;
         }
         if (reservedSymbols.has(d.symbol)) {
           d.eligible = false;
           d.status = 'SKIP';
+          d.stage = 'PLACE';
           d.reason = 'SYMBOL_RESERVED';
           continue;
         }
@@ -1015,6 +1110,7 @@ class RuleAutoTrader {
         } catch (e) {
           this.updateRuleStats(stats => { stats.orderFailed++; });
           d.status = 'ORDER_FAILED';
+          d.stage = 'PLACE';
           d.error = e.message;
           Logger.error('规则自动交易 LIMIT 下单失败', { traceId, symbol: d.symbol, action: d.action, error: e, code: e.code || null, status: e.status || null });
         }
@@ -1028,6 +1124,7 @@ class RuleAutoTrader {
       this.updateRuleStats(s => {
         for (const [reason, count] of Object.entries(reasonCounts)) s.reasonCounts[reason] = Number(s.reasonCounts[reason] || 0) + Number(count || 0);
       });
+      const funnel = this.buildFunnel({ decisions, candidates: candidates.length, ordersPlaced: placed, indicatorPass: indicatorPassCount });
       this.lastSummary = {
         traceId,
         updatedAt: Date.now(),
@@ -1037,6 +1134,7 @@ class RuleAutoTrader {
         eligible: indicatorPassCount,
         indicatorPass: indicatorPassCount,
         reasonCounts,
+        funnel,
         decisions: decisions.slice(0, topN * 2),
         durationMs: Date.now() - scanStartedAt
       };
@@ -1048,8 +1146,13 @@ class RuleAutoTrader {
         ordersPlaced: placed,
         pendingOrders: this.pending.size,
         eligible: indicatorPassCount,
+        funnel: funnel.stages.map(s => `${s.key}:${s.passed}/${s.entered}`),
+        rsiSensitivity: funnel.rsiSensitivity,
         reasonCounts
       });
+      if (funnel.degraded) {
+        Logger.warn('规则自动交易漏斗数据降级：存在未打 stage 标记的决策，漏斗数字不可信', { traceId, unstaged: funnel.unstaged, candidates: candidates.length });
+      }
       return this.getStatus();
     } finally {
       this.scanBusy = false;
@@ -1094,7 +1197,7 @@ class RuleAutoTrader {
         try {
           out[i] = await worker(items[i], i);
         } catch (e) {
-          out[i] = { index: i, symbol: normalizeSymbol(items[i]?.symbol), action: items[i]?.action, eligible: false, status: 'ERROR', reason: 'EVALUATION_ERROR', error: e.message };
+          out[i] = { index: i, symbol: normalizeSymbol(items[i]?.symbol), action: items[i]?.action, eligible: false, status: 'ERROR', stage: 'ERROR', reason: 'EVALUATION_ERROR', error: e.message };
           Logger.warn('规则自动交易候选分析异常', { symbol: items[i]?.symbol, action: items[i]?.action, error: e, code: e?.code ?? null, status: e?.status ?? null });
         }
       }
@@ -1107,11 +1210,11 @@ class RuleAutoTrader {
     const symbol = normalizeSymbol(candidate.symbol);
     const action = candidate.action;
     const base = { index, symbol, action, group: candidate.group, rank: candidate.rank || null, changePct: Number(candidate.changePct || 0), eligible: false, status: 'SKIP' };
-    if (!symbol) return { ...base, reason: 'SYMBOL_INVALID' };
-    if (ctx.currentSymbols.has(symbol)) return { ...base, reason: 'ALREADY_POSITION' };
-    if (ctx.pendingSymbols.has(symbol)) return { ...base, reason: 'ALREADY_PENDING' };
+    if (!symbol) return { ...base, stage: 'PRECHECK', reason: 'SYMBOL_INVALID' };
+    if (ctx.currentSymbols.has(symbol)) return { ...base, stage: 'PRECHECK', reason: 'ALREADY_POSITION' };
+    if (ctx.pendingSymbols.has(symbol)) return { ...base, stage: 'PRECHECK', reason: 'ALREADY_PENDING' };
     const cooldown = typeof this.state.getRuleCooldown === 'function' ? this.state.getRuleCooldown(symbol) : this.state.getCooldown(symbol);
-    if (Date.now() < cooldown) return { ...base, reason: 'COOLDOWN', until: cooldown };
+    if (Date.now() < cooldown) return { ...base, stage: 'PRECHECK', reason: 'COOLDOWN', until: cooldown };
 
     const [rows1m, rows5m] = await Promise.all([
       this.getCachedKlines(symbol, '1m', 120, 5000),
@@ -1120,14 +1223,14 @@ class RuleAutoTrader {
     const c1 = closedCandles(rows1m);
     const c5 = closedCandles(rows5m);
     const st5 = calculateSuperTrend(c5, 10, 3);
-    if (!st5) return { ...base, reason: 'SUPERTREND_5M_UNAVAILABLE' };
+    if (!st5) return { ...base, stage: 'TREND', reason: 'SUPERTREND_5M_UNAVAILABLE' };
 
     const desiredDir = action === 'LONG' ? 1 : -1;
     const trend5mMatch = st5.direction === desiredDir;
-    if (!trend5mMatch) return { ...base, reason: '5M_TREND_MISMATCH', trend5m: st5.direction === 1 ? 'UP' : 'DOWN', barsSinceFlip: st5.barsSinceFlip };
+    if (!trend5mMatch) return { ...base, stage: 'TREND', reason: '5M_TREND_MISMATCH', trend5m: st5.direction === 1 ? 'UP' : 'DOWN', barsSinceFlip: st5.barsSinceFlip };
     const flipCooldown = Number(this.cfg.stFlipCooldownBars ?? 1);
     if (st5.barsSinceFlip != null && st5.barsSinceFlip < flipCooldown) {
-      return { ...base, reason: 'ST_FLIP_COOLDOWN', trend5m: st5.direction === 1 ? 'UP' : 'DOWN', barsSinceFlip: st5.barsSinceFlip, requiredBars: flipCooldown };
+      return { ...base, stage: 'TREND', reason: 'ST_FLIP_COOLDOWN', trend5m: st5.direction === 1 ? 'UP' : 'DOWN', barsSinceFlip: st5.barsSinceFlip, requiredBars: flipCooldown };
     }
 
     const marketState = superTrendMarketState(
@@ -1138,7 +1241,7 @@ class RuleAutoTrader {
       Number(this.cfg.marketStateMinEfficiency ?? 0.22)
     );
     if (marketState?.choppy) {
-      return { ...base, reason: '5M_MARKET_CHOP', trend5m: st5.direction === 1 ? 'UP' : 'DOWN', barsSinceFlip: st5.barsSinceFlip, marketState };
+      return { ...base, stage: 'TREND', reason: '5M_MARKET_CHOP', trend5m: st5.direction === 1 ? 'UP' : 'DOWN', barsSinceFlip: st5.barsSinceFlip, marketState };
     }
 
     const rsiPeriod = Number(this.cfg.rsiPeriod || 14);
@@ -1147,10 +1250,11 @@ class RuleAutoTrader {
     const rsiTriggerLookback = Number(this.cfg.rsiLookbackBars ?? 2);
     const rsiDepthLookback = Number(this.cfg.rsiDepthLookbackBars ?? 6);
     const rsi = rsiTrigger(c1, action, rsiPeriod, rsiThreshold, rsiTriggerLookback, rsiDepthThreshold, rsiDepthLookback);
-    if (!rsi) return { ...base, reason: 'RSI_DATA_UNAVAILABLE' };
+    if (!rsi) return { ...base, stage: 'RSI', reason: 'RSI_DATA_UNAVAILABLE' };
     if (!rsi.confirmed) {
       return {
         ...base,
+        stage: 'RSI',
         reason: rsi.reason || 'RSI_RECOVERY_NOT_CONFIRMED',
         rsi: rsi.value,
         rsiPrevious: rsi.previous,
@@ -1169,15 +1273,15 @@ class RuleAutoTrader {
     }
 
     const volume = volumeConfirmation(c1, Number(this.cfg.volumePeriod || 20), Number(this.cfg.volumeMinRatio ?? 0.9));
-    if (!volume) return { ...base, reason: 'VOLUME_DATA_UNAVAILABLE', rsi: rsi.value };
+    if (!volume) return { ...base, stage: 'VOLUME', reason: 'VOLUME_DATA_UNAVAILABLE', rsi: rsi.value };
     if (volume.ratio < Number(this.cfg.volumeMinRatio ?? 0.9)) {
-      return { ...base, reason: 'VOLUME_TOO_LOW', rsi: rsi.value, volumeRatio: volume.ratio, volumeMinRatio: Number(this.cfg.volumeMinRatio ?? 0.9) };
+      return { ...base, stage: 'VOLUME', reason: 'VOLUME_TOO_LOW', rsi: rsi.value, volumeRatio: volume.ratio, volumeMinRatio: Number(this.cfg.volumeMinRatio ?? 0.9) };
     }
 
     const mark = Number((await this.binance.fetchMarkPrice(symbol)).markPrice || 0);
-    if (!(mark > 0)) return { ...base, reason: 'MARK_PRICE_UNAVAILABLE' };
+    if (!(mark > 0)) return { ...base, stage: 'ENTRY', reason: 'MARK_PRICE_UNAVAILABLE' };
     const atrValue = atr(c1.slice(-70), 10);
-    if (!(atrValue > 0)) return { ...base, reason: 'ATR_UNAVAILABLE' };
+    if (!(atrValue > 0)) return { ...base, stage: 'ENTRY', reason: 'ATR_UNAVAILABLE' };
 
     const entryLookback = Math.max(3, Math.min(5, Number(this.cfg.entryLookbackBars || 4)));
     const offsetAtr = Math.max(0, Math.min(0.8, Number(this.cfg.entryOffsetAtr ?? 0.15)));
@@ -1187,16 +1291,16 @@ class RuleAutoTrader {
       offsetAtr,
       retraceRatio: Number(this.cfg.entryRetraceRatio ?? 0.38)
     });
-    if (!precision) return { ...base, reason: 'ENTRY_PRICE_INVALID', mark };
+    if (!precision) return { ...base, stage: 'ENTRY', reason: 'ENTRY_PRICE_INVALID', mark };
     const recentLow = precision.recentLow;
     const recentHigh = precision.recentHigh;
     const entryRaw = precision.entryRaw;
     const entry = this.binance.roundPrice(symbol, entryRaw, action === 'LONG' ? 'floor' : 'ceil');
-    if (!(entry > 0)) return { ...base, reason: 'ENTRY_PRICE_INVALID', mark };
-    if ((action === 'LONG' && entry >= mark) || (action === 'SHORT' && entry <= mark)) return { ...base, reason: 'LIMIT_WOULD_BE_MARKETABLE', entry, mark };
+    if (!(entry > 0)) return { ...base, stage: 'ENTRY', reason: 'ENTRY_PRICE_INVALID', mark };
+    if ((action === 'LONG' && entry >= mark) || (action === 'SHORT' && entry <= mark)) return { ...base, stage: 'ENTRY', reason: 'LIMIT_WOULD_BE_MARKETABLE', entry, mark };
     const maxEntryDistanceAtr = Number(this.cfg.maxEntryDistanceAtr ?? 1.5);
     const distanceAtr = Math.abs(mark - entry) / atrValue;
-    if (distanceAtr > maxEntryDistanceAtr) return { ...base, reason: 'ENTRY_TOO_FAR', entry, mark, distanceAtr, maxEntryDistanceAtr };
+    if (distanceAtr > maxEntryDistanceAtr) return { ...base, stage: 'ENTRY', reason: 'ENTRY_TOO_FAR', entry, mark, distanceAtr, maxEntryDistanceAtr };
 
     // 结构止损：最近回调极值外再留0.15 ATR缓冲，RiskManager负责按实际止损距离缩放数量。
     const structureBuffer = atrValue * 0.15;
@@ -1204,20 +1308,20 @@ class RuleAutoTrader {
     let slPct = action === 'LONG' ? ((entry - stopPrice) / entry * 100) : ((stopPrice - entry) / entry * 100);
     const minSLPct = Number(this.cfg.minRuleSLPct ?? 0.4);
     const maxSLPct = Number(this.cfg.maxRuleSLPct ?? 2.5);
-    if (!(slPct > 0)) return { ...base, reason: 'STOP_DISTANCE_INVALID', entry, stopPrice };
+    if (!(slPct > 0)) return { ...base, stage: 'ENTRY', reason: 'STOP_DISTANCE_INVALID', entry, stopPrice };
     if (slPct < minSLPct) {
       slPct = minSLPct;
       stopPrice = action === 'LONG' ? entry * (1 - slPct / 100) : entry * (1 + slPct / 100);
     }
-    if (slPct > maxSLPct) return { ...base, reason: 'STOP_TOO_WIDE', entry, stopPrice, slPct, maxSLPct };
+    if (slPct > maxSLPct) return { ...base, stage: 'ENTRY', reason: 'STOP_TOO_WIDE', entry, stopPrice, slPct, maxSLPct };
     const rrTarget = Number(this.cfg.ruleTakeProfitRR ?? 2);
     const tpPct = slPct * rrTarget;
     const tpPrice = action === 'LONG' ? entry * (1 + tpPct / 100) : entry * (1 - tpPct / 100);
 
     const configuredLeverage = Number(this.cfg.leverage || 10);
     const maxLeverage = await this.binance.maxInitialLeverage(symbol);
-    if (!(maxLeverage > 0)) return { ...base, reason: 'LEVERAGE_UNAVAILABLE' };
-    if (configuredLeverage > Number(maxLeverage)) return { ...base, reason: 'LEVERAGE_EXCEEDS_MAX', configuredLeverage, maxLeverage };
+    if (!(maxLeverage > 0)) return { ...base, stage: 'RISK', reason: 'LEVERAGE_UNAVAILABLE' };
+    if (configuredLeverage > Number(maxLeverage)) return { ...base, stage: 'RISK', reason: 'LEVERAGE_EXCEEDS_MAX', configuredLeverage, maxLeverage };
     const leverage = configuredLeverage;
 
     const account = typeof this.binance.getAccount === 'function' ? await this.binance.getAccount() : null;
@@ -1225,25 +1329,25 @@ class RuleAutoTrader {
     const availableBalance = Number(account?.availableBalance ?? equity);
     const riskPct = Number(this.cfg.riskPerTradePct ?? this.config.get().risk?.riskPerTradePct ?? 1);
     const riskMoney = equity * riskPct / 100;
-    if (!(equity > 0 && riskMoney > 0)) return { ...base, reason: 'ACCOUNT_EQUITY_UNAVAILABLE' };
+    if (!(equity > 0 && riskMoney > 0)) return { ...base, stage: 'RISK', reason: 'ACCOUNT_EQUITY_UNAVAILABLE' };
     const stopDistance = entry * slPct / 100;
     const rawQty = riskMoney / stopDistance;
     const minQty = Number(this.binance.minQty(symbol) || 0);
     const quantity = this.binance.roundQty(symbol, rawQty);
     if (!(quantity >= minQty)) {
       const requiredEquity = riskPct > 0 ? (minQty * stopDistance * 100) / riskPct : 0;
-      return { ...base, reason: 'QTY_BELOW_MIN', quantity, rawQty, minQty, requiredEquity, currentEquity: equity };
+      return { ...base, stage: 'RISK', reason: 'QTY_BELOW_MIN', quantity, rawQty, minQty, requiredEquity, currentEquity: equity };
     }
     const maxQty = typeof this.binance.maxQty === 'function' ? Number(this.binance.maxQty(symbol) || 0) : 0;
-    if (maxQty > 0 && quantity > maxQty) return { ...base, reason: 'QTY_ABOVE_MAX', quantity, maxQty, rawQty };
+    if (maxQty > 0 && quantity > maxQty) return { ...base, stage: 'RISK', reason: 'QTY_ABOVE_MAX', quantity, maxQty, rawQty };
     const notional = quantity * entry;
     const minNotional = Number(this.binance.minNotional(symbol) || 0);
     if (minNotional > 0 && notional < minNotional) {
       const requiredEquity = riskPct > 0 ? minNotional * slPct / riskPct : 0;
-      return { ...base, reason: 'NOTIONAL_BELOW_MIN', quantity, notional, minNotional, requiredEquity, currentEquity: equity };
+      return { ...base, stage: 'RISK', reason: 'NOTIONAL_BELOW_MIN', quantity, notional, minNotional, requiredEquity, currentEquity: equity };
     }
     const requiredMargin = notional / leverage;
-    if (availableBalance > 0 && requiredMargin > availableBalance * 0.95) return { ...base, reason: 'INSUFFICIENT_AVAILABLE_MARGIN', requiredMargin, availableBalance };
+    if (availableBalance > 0 && requiredMargin > availableBalance * 0.95) return { ...base, stage: 'RISK', reason: 'INSUFFICIENT_AVAILABLE_MARGIN', requiredMargin, availableBalance };
 
     const signalStrength = 2 + (rsi.crossed ? 1 : 0) + (volume.ratio >= Number(this.cfg.volumeStrongRatio ?? 1.2) ? 1 : 0) + Math.max(0, 2 - Math.min(2, Number(candidate.rank || 3) - 1));
     Logger.info('规则自动交易候选通过V13回踩检查', {
@@ -1257,10 +1361,11 @@ class RuleAutoTrader {
       rr: rrTarget, signalStrength, marketState, entryPrecision: { structureEntry: precision.structureEntry, candleMidEntry: precision.candleMidEntry, retraceEntry: precision.retraceEntry, chosenEntry: entry, retraceRatio: precision.retraceRatio, levelToExtremeAtr: precision.levelToExtremeAtr }
     });
     return {
-      ...base, eligible: true, status: 'READY', mark, entry, quantity, notional, requiredMargin, equity, availableBalance, leverage,
+      ...base, stage: 'PASS', eligible: true, status: 'READY', mark, entry, quantity, notional, requiredMargin, equity, availableBalance, leverage,
       plannedSLPct: slPct, plannedTPPct: tpPct, rr: rrTarget, stopPrice, tpPrice,
       trend5m: st5.direction === 1 ? 'UP' : 'DOWN', trend5mMatch, barsSinceFlip: st5.barsSinceFlip,
-      rsi: { value: rsi.value, previous: rsi.previous, threshold: rsi.threshold, crossed: rsi.crossed, tooLate: rsi.tooLate },
+      // depthReached/slopeConfirmed 一并带出，供逐阶段漏斗对「进入 RSI 的全部币」统一统计。
+      rsi: { value: rsi.value, previous: rsi.previous, threshold: rsi.threshold, crossed: rsi.crossed, tooLate: rsi.tooLate, depthReached: rsi.depthReached, slopeConfirmed: rsi.slopeConfirmed, depthExtreme: rsi.depthExtreme },
       volume: { current: volume.current, average: volume.average, ratio: volume.ratio, minRatio: volume.minRatio, strong: volume.strong },
       structure: { recentLow, recentHigh, entryLookback, offsetAtr, retraceRatio: precision.retraceRatio, structureEntry: precision.structureEntry, candleMidEntry: precision.candleMidEntry, retraceEntry: precision.retraceEntry, levelToExtremeAtr: precision.levelToExtremeAtr, signalCandleTime: precision.signalCandleTime },
       distanceAtr, signalStrength, signalAt: Date.now()

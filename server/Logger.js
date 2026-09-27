@@ -3,6 +3,7 @@
 // V11.2.0：增强故障可追踪性。所有关键错误支持 code/status/阶段/traceId/stack，
 // 同时继续对 API Key / Secret / Authorization / Signature 做脱敏。
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { redact } = require('./security/Redactor');
 
@@ -128,7 +129,10 @@ class Logger {
     return Logger._default;
   }
   static instance() {
-    if (!Logger._default) Logger._default = new Logger(process.cwd());
+    // 未显式 configure 时（例如单元测试直接调用业务模块）写入系统临时目录，
+    // 而不是 process.cwd() —— 否则测试从项目根运行会把日志写进项目的 logs/app.log，
+    // 污染真实运行日志、误导排查。生产启动时 app.js 一定会先 configure(userDataDir)。
+    if (!Logger._default) Logger._default = new Logger(path.join(os.tmpdir(), 'binance-protection-assistant'));
     return Logger._default;
   }
   static nextId(prefix) { return Logger.instance().nextId(prefix); }

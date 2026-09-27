@@ -100,7 +100,6 @@ async function createApplicationServer({ userDataDir, credentials, configStore }
   const localSessionToken = crypto.randomBytes(24).toString('hex');
   const state = new StateStore(userDataDir);
   const runtime = new RuntimeState();
-  runtime.version = '13.3.5';
   runtime.lastSyncAt = 0;
   runtime.markWsConnected = false;
   runtime.markWsLastEventAt = 0;

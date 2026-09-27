@@ -5,6 +5,7 @@ const path = require('path');
 const { createApplicationServer } = require('../server/app');
 const CredentialStore = require('../server/CredentialStore');
 const ConfigStore = require('../server/ConfigStore');
+const { readVersion } = require('../server/core/version');
 
 let mainWindow = null;
 let runtime = null;
@@ -20,7 +21,7 @@ async function createWindow() {
     height: 980,
     minWidth: 1200,
     minHeight: 760,
-    title: '币安合约保护助手 V11.2.0',
+    title: `币安合约保护助手 V${readVersion()}`,
     backgroundColor: '#0b0f14',
     webPreferences: {
       contextIsolation: true,
