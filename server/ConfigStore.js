@@ -57,6 +57,10 @@ const DEFAULTS = {
     topN: 20,
     leverage: 10,
     riskPerTradePct: 0.5,
+    // 止损的 ATR 相对下限：最终止损 = max(minRuleSLPct, minStopAtrRatio × ATR1m)。
+    // 纯固定百分比不看币的波动大小，高波动币的止损会被埋在噪音里必被扫。
+    // 惯例：止损至少 1.5×ATR。设 0 可关闭该规则。
+    minStopAtrRatio: 1.5,
     // 资金费率过滤：做多只拦正费率、做空只拦负费率（只有付费的方向才拦）。
     // 单位是百分比，0.07 = 0.07%。设为 0 关闭过滤。
     maxFundingRatePct: 0.07,
@@ -76,7 +80,9 @@ const DEFAULTS = {
     rsiShortDepth: 65,
     rsiDepthLookbackBars: 6,
     volumePeriod: 20,
-    volumeMinRatio: 0.9,
+    // 1.2：要求回踩时成交量至少与20根均量持平。
+    // 原为 0.9（低于均量 10% 也放行），几乎不是过滤，缩量回踩更容易直接跌下去。
+    volumeMinRatio: 1.2,
     volumeStrongRatio: 1.2,
     entryLookbackBars: 4,
     entryOffsetAtr: 0.15,

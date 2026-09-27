@@ -74,6 +74,7 @@ function validateSettingsPatch(patch) {
     if (r.minRuleSLPct != null && !(Number(r.minRuleSLPct) >= 0.2 && Number(r.minRuleSLPct) <= 2)) throw new Error('规则最小结构止损必须在0.2%～2%');
     if (r.maxRuleSLPct != null && !(Number(r.maxRuleSLPct) >= 0.5 && Number(r.maxRuleSLPct) <= 5)) throw new Error('规则最大结构止损必须在0.5%～5%');
     if (r.minRuleSLPct != null && r.maxRuleSLPct != null && Number(r.maxRuleSLPct) < Number(r.minRuleSLPct)) throw new Error('规则最大结构止损不能小于最小结构止损');
+    if (r.minStopAtrRatio != null && !(Number(r.minStopAtrRatio) >= 0 && Number(r.minStopAtrRatio) <= 10)) throw new Error('止损ATR倍数下限必须在0～10（0 表示关闭 ATR 相对止损）');
     if (r.ruleTakeProfitRR != null && !(Number(r.ruleTakeProfitRR) >= 1.2 && Number(r.ruleTakeProfitRR) <= 4)) throw new Error('规则止盈RR必须在1.2～4R');
     if (r.exitRsiLong != null && !(Number(r.exitRsiLong) >= 50 && Number(r.exitRsiLong) <= 80)) throw new Error('多头RSI退出阈值必须在50～80');
     if (r.exitRsiShort != null && !(Number(r.exitRsiShort) >= 20 && Number(r.exitRsiShort) <= 50)) throw new Error('空头RSI退出阈值必须在20～50');

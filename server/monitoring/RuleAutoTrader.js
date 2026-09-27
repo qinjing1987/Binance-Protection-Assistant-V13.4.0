@@ -398,6 +398,32 @@ function detectRsiDivergence(candles, rsiValues, action, {
   return { ...base, ...detail, rsiDelta: Number(rsiDelta.toFixed(2)), confirmed: true, reason: null };
 }
 
+// 规则止损计算（抽成纯函数便于直接测试）：
+//   1) 结构止损 = 最近回调极值 ± 0.15 ATR 缓冲
+//   2) 下限 = max(固定下限 minSLPct, minStopAtrRatio × ATR) —— 止损必须落在正常波动带之外
+//   3) 上限 = maxSLPct
+// 固定百分比不看币的波动大小：同样 0.4%，对 ATR 0.15% 的币是 2.7×ATR（合理），
+// 对 ATR 0.43% 的币只有 0.94×ATR（埋在噪音正中，必被扫）。实测事故即由此而来。
+function computeRuleStop({ action, entry, recentLow, recentHigh, atrValue, minSLPct = 0.4, maxSLPct = 2.5, minStopAtrRatio = 1.5 } = {}) {
+  const actionName = String(action || '').toUpperCase() === 'LONG' ? 'LONG' : 'SHORT';
+  const e = Number(entry);
+  const atrVal = Number(atrValue);
+  const structureBuffer = atrVal > 0 ? atrVal * 0.15 : 0;
+  let stopPrice = actionName === 'LONG' ? Number(recentLow) - structureBuffer : Number(recentHigh) + structureBuffer;
+  let slPct = actionName === 'LONG' ? ((e - stopPrice) / e * 100) : ((stopPrice - e) / e * 100);
+  if (!(slPct > 0)) return { ok: false, reason: 'STOP_DISTANCE_INVALID', stopPrice, slPct, atrFloorPct: 0, stopAtrRatio: null };
+  const atrFloorPct = atrVal > 0 && e > 0 ? (atrVal * Math.max(0, Number(minStopAtrRatio))) / e * 100 : 0;
+  const effectiveMinSLPct = Math.max(Number(minSLPct), atrFloorPct);
+  if (slPct < effectiveMinSLPct) {
+    slPct = effectiveMinSLPct;
+    stopPrice = actionName === 'LONG' ? e * (1 - slPct / 100) : e * (1 + slPct / 100);
+  }
+  // 折算成 ATR 倍数，供逐币诊断面板直接读出"止损有没有埋在噪音里"
+  const stopAtrRatio = atrVal > 0 ? (slPct / 100 * e) / atrVal : null;
+  if (slPct > Number(maxSLPct)) return { ok: false, reason: 'STOP_TOO_WIDE', stopPrice, slPct, atrFloorPct, stopAtrRatio };
+  return { ok: true, stopPrice, slPct, atrFloorPct, stopAtrRatio };
+}
+
 function classifyRsiTriggerValues(values, action, threshold, depthThreshold, triggerLookbackBars = 2, depthLookbackBars = 6) {
   const actionName = String(action || '').toUpperCase();
   const triggerLookback = Math.max(1, Math.min(3, Number(triggerLookbackBars) || 2));
@@ -941,6 +967,7 @@ class RuleAutoTrader {
       maxEntryDistanceAtr: Number(c.maxEntryDistanceAtr ?? 1.5),
       stFlipCooldownBars: Number(c.stFlipCooldownBars ?? 1),
       minRuleSLPct: Number(c.minRuleSLPct ?? 0.4),
+      minStopAtrRatio: Number(c.minStopAtrRatio ?? 1.5),
       maxRuleSLPct: Number(c.maxRuleSLPct ?? 2.5),
       ruleTakeProfitRR: Number(c.ruleTakeProfitRR ?? 2),
       exitOnIndicatorReverse: c.exitOnIndicatorReverse !== false,
@@ -1497,17 +1524,14 @@ class RuleAutoTrader {
     if (distanceAtr > maxEntryDistanceAtr) return { ...base, stage: 'ENTRY', reason: 'ENTRY_TOO_FAR', entry, mark, distanceAtr, maxEntryDistanceAtr };
 
     // 结构止损：最近回调极值外再留0.15 ATR缓冲，RiskManager负责按实际止损距离缩放数量。
-    const structureBuffer = atrValue * 0.15;
-    let stopPrice = action === 'LONG' ? recentLow - structureBuffer : recentHigh + structureBuffer;
-    let slPct = action === 'LONG' ? ((entry - stopPrice) / entry * 100) : ((stopPrice - entry) / entry * 100);
     const minSLPct = Number(this.cfg.minRuleSLPct ?? 0.4);
     const maxSLPct = Number(this.cfg.maxRuleSLPct ?? 2.5);
-    if (!(slPct > 0)) return { ...base, stage: 'ENTRY', reason: 'STOP_DISTANCE_INVALID', entry, stopPrice };
-    if (slPct < minSLPct) {
-      slPct = minSLPct;
-      stopPrice = action === 'LONG' ? entry * (1 - slPct / 100) : entry * (1 + slPct / 100);
+    const minStopAtrRatio = Math.max(0, Number(this.cfg.minStopAtrRatio ?? 1.5));
+    const stop = computeRuleStop({ action, entry, recentLow, recentHigh, atrValue, minSLPct, maxSLPct, minStopAtrRatio });
+    if (!stop.ok) {
+      return { ...base, stage: 'ENTRY', reason: stop.reason, entry, stopPrice: stop.stopPrice, slPct: stop.slPct, maxSLPct, atrFloorPct: stop.atrFloorPct, stopAtrRatio: stop.stopAtrRatio };
     }
-    if (slPct > maxSLPct) return { ...base, stage: 'ENTRY', reason: 'STOP_TOO_WIDE', entry, stopPrice, slPct, maxSLPct };
+    const { stopPrice, slPct, atrFloorPct, stopAtrRatio } = stop;
     const rrTarget = Number(this.cfg.ruleTakeProfitRR ?? 2);
     const tpPct = slPct * rrTarget;
     const tpPrice = action === 'LONG' ? entry * (1 + tpPct / 100) : entry * (1 - tpPct / 100);
@@ -1530,7 +1554,7 @@ class RuleAutoTrader {
     const quantity = this.binance.roundQty(symbol, rawQty);
     if (!(quantity >= minQty)) {
       const requiredEquity = riskPct > 0 ? (minQty * stopDistance * 100) / riskPct : 0;
-      return { ...base, stage: 'RISK', reason: 'QTY_BELOW_MIN', quantity, rawQty, minQty, requiredEquity, currentEquity: equity };
+      return { ...base, stage: 'RISK', reason: 'QTY_BELOW_MIN', quantity, rawQty, minQty, requiredEquity, currentEquity: equity, plannedSLPct: slPct, stopAtrRatio };
     }
     const maxQty = typeof this.binance.maxQty === 'function' ? Number(this.binance.maxQty(symbol) || 0) : 0;
     if (maxQty > 0 && quantity > maxQty) return { ...base, stage: 'RISK', reason: 'QTY_ABOVE_MAX', quantity, maxQty, rawQty };
@@ -1538,10 +1562,10 @@ class RuleAutoTrader {
     const minNotional = Number(this.binance.minNotional(symbol) || 0);
     if (minNotional > 0 && notional < minNotional) {
       const requiredEquity = riskPct > 0 ? minNotional * slPct / riskPct : 0;
-      return { ...base, stage: 'RISK', reason: 'NOTIONAL_BELOW_MIN', quantity, notional, minNotional, requiredEquity, currentEquity: equity };
+      return { ...base, stage: 'RISK', reason: 'NOTIONAL_BELOW_MIN', quantity, notional, minNotional, requiredEquity, currentEquity: equity, plannedSLPct: slPct, stopAtrRatio };
     }
     const requiredMargin = notional / leverage;
-    if (availableBalance > 0 && requiredMargin > availableBalance * 0.95) return { ...base, stage: 'RISK', reason: 'INSUFFICIENT_AVAILABLE_MARGIN', requiredMargin, availableBalance };
+    if (availableBalance > 0 && requiredMargin > availableBalance * 0.95) return { ...base, stage: 'RISK', reason: 'INSUFFICIENT_AVAILABLE_MARGIN', requiredMargin, availableBalance, plannedSLPct: slPct, notional, stopAtrRatio };
 
     const signalStrength = 2 + (rsi.crossed ? 1 : 0) + (volume.ratio >= Number(this.cfg.volumeStrongRatio ?? 1.2) ? 1 : 0) + Math.max(0, 2 - Math.min(2, Number(candidate.rank || 3) - 1));
     Logger.info('规则自动交易候选通过V13回踩检查', {
@@ -1552,11 +1576,12 @@ class RuleAutoTrader {
       rsi: rsi.value, rsiThreshold, rsiCrossed: rsi.crossed,
       volumeRatio: volume.ratio, volumeAverage: volume.average, volumeStrong: volume.strong,
       recentLow, recentHigh, distanceAtr, stopPrice, plannedSLPct: slPct, tpPrice, plannedTPPct: tpPct,
-      rr: rrTarget, signalStrength, marketState, entryPrecision: { structureEntry: precision.structureEntry, candleMidEntry: precision.candleMidEntry, retraceEntry: precision.retraceEntry, chosenEntry: entry, retraceRatio: precision.retraceRatio, levelToExtremeAtr: precision.levelToExtremeAtr }
+      rr: rrTarget, signalStrength, marketState, stopAtrRatio, atrFloorPct, atrValue, entryPrecision: { structureEntry: precision.structureEntry, candleMidEntry: precision.candleMidEntry, retraceEntry: precision.retraceEntry, chosenEntry: entry, retraceRatio: precision.retraceRatio, levelToExtremeAtr: precision.levelToExtremeAtr }
     });
     return {
       ...base, stage: 'PASS', eligible: true, status: 'READY', mark, entry, quantity, notional, requiredMargin, equity, availableBalance, leverage,
       plannedSLPct: slPct, plannedTPPct: tpPct, rr: rrTarget, stopPrice, tpPrice,
+      stopAtrRatio, atrFloorPct, atrValue,
       trend5m: st5.direction === 1 ? 'UP' : 'DOWN', trend5mMatch, barsSinceFlip: st5.barsSinceFlip,
       // depthReached/slopeConfirmed 一并带出，供逐阶段漏斗对「进入 RSI 的全部币」统一统计。
       rsi: { value: rsi.value, previous: rsi.previous, threshold: rsi.threshold, crossed: rsi.crossed, tooLate: rsi.tooLate, depthReached: rsi.depthReached, slopeConfirmed: rsi.slopeConfirmed, depthExtreme: rsi.depthExtreme },
@@ -1749,4 +1774,4 @@ class RuleAutoTrader {
   }
 }
 
-module.exports = { RuleAutoTrader, findSupportResistance, reversalConfirmation, atr, bollinger, macd, ema, bollingerAt, bollingerSeries, macdMomentum, detectBollingerPullback, rsiSeries, rsiTrigger, rsiExitReverse, volumeConfirmation, precisionEntry, superTrendMarketState, shouldExitRulePosition, utcDayKey, defaultRuleStats, normalizeRuleStats, classifyRsiTriggerValues, pivotLevels, rsiAt, detectRsiDivergence };
+module.exports = { RuleAutoTrader, findSupportResistance, reversalConfirmation, atr, bollinger, macd, ema, bollingerAt, bollingerSeries, macdMomentum, detectBollingerPullback, rsiSeries, rsiTrigger, rsiExitReverse, volumeConfirmation, precisionEntry, superTrendMarketState, shouldExitRulePosition, utcDayKey, defaultRuleStats, normalizeRuleStats, classifyRsiTriggerValues, pivotLevels, rsiAt, detectRsiDivergence, computeRuleStop };
