@@ -308,9 +308,37 @@ test('V13.4.0：规则面板子块横向并排（漏斗嵌入三列诊断区）'
   assert.ok(block.includes('本轮阻断原因'), '第二列应为阻断原因');
   assert.ok(block.includes('逐币诊断'), '第三列应为逐币诊断');
   // 三列布局
-  assert.ok(/\.rule-diagnostics\{[^}]*grid-template-columns:minmax\(178px/.test(html), '诊断区应为三列 minmax 布局');
+  assert.ok(/\.rule-diagnostics\{[^}]*grid-template-columns:minmax\(150px/.test(html), '诊断区应为三列 minmax 布局');
   // 漏斗在其窄列内应为纵向单列（而非原来的 9 列横排）
   assert.ok(/\.rule-flow\{display:grid;grid-template-columns:1fr;/.test(html), '漏斗应改为纵向单列');
+});
+
+test('V13.4.0：规则面板跨满 grid-main 整行，不再被挤在窄列里', () => {
+  const html = fs.readFileSync(path.join(root, 'frontend/index.html'), 'utf8');
+  // 面板必须带 grid-column:1/-1 才能跨满三列
+  assert.ok(/<div class="panel" id="ruleTradingPanel" style="grid-column:1\/-1"/.test(html), '规则面板应跨满整行');
+
+  // 且必须是 grid-main 的直接子元素 —— 位于 right-col 闭合之后、grid-main 的 </section> 之前
+  const s = html.indexOf('<section class="grid-main">');
+  const e = html.indexOf('id="logPanel"', s);
+  const seg = html.slice(s, e);
+  const panelAt = seg.indexOf('id="ruleTradingPanel"');
+  assert.ok(panelAt > 0, '规则面板应在 grid-main 段内');
+  // 截到面板开标签之前，避免切进标签中间
+  const panelTagAt = seg.lastIndexOf('<div class="panel" id="ruleTradingPanel"', panelAt);
+  const before = seg.slice(0, panelTagAt);
+  // 面板之前应恰好出现 3 个列容器，且 right-col 已经闭合（div 配平为 0）
+  assert.equal((before.match(/<div class="col/g) || []).length, 3, '面板之前应有三个列容器');
+  const rightColAt = before.lastIndexOf('<div class="col right-col"');
+  assert.ok(rightColAt > 0, '应能找到 right-col');
+  const afterRightCol = before.slice(rightColAt);
+  const o = (afterRightCol.match(/<div\b/g) || []).length;
+  const c = (afterRightCol.match(/<\/div>/g) || []).length;
+  assert.equal(o, c, `right-col 必须已在规则面板之前闭合（开 ${o} / 闭 ${c}），否则面板仍在窄列内`);
+
+  // 防御：漏斗渲染抛错不得连累其余面板（曾导致逐币诊断整块不显示）
+  const script = html.match(/<script>([\s\S]*)<\/script>/)?.[1] || '';
+  assert.ok(/try\{renderRuleFunnel\(sum,x\)\}catch/.test(script), 'renderRuleFunnel 调用必须被 try/catch 包裹');
 });
 
 test('V13.4.0：前端已声明 renderRuleFunnel，且漏斗格子数量与后端阶段数一致', () => {
