@@ -1,0 +1,25 @@
+{
+  "name": "binance-protection-assistant",
+  "version": "13.4.0",
+  "private": true,
+  "description": "币安合约保护助手 V13.4.0：Top20×2规则候选池 · 全量RSI诊断 · 日志轮转筛选 · 策略指挥台UI。",
+  "main": "electron/main.js",
+  "author": "Q-PROTECT",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "check": "node --check electron/main.js && node --check server/app.js && node --check server/ConfigStore.js && node --check server/CredentialStore.js && node --check server/binance/BinanceClient.js && node --check server/binance/UserDataStream.js && node --check server/protection/ProtectionManager.js && node --check server/protection/PositionMonitor.js && node --check server/risk/RiskManager.js && node --check server/ai/AIService.js && node --check server/ai/RankingService.js && node --check server/ai/AITrader.js && node --check server/recovery/Reconciliation.js && node --check server/monitoring/FundingMonitor.js && node --check server/monitoring/LiquidationMonitor.js && node --check server/monitoring/SuperTrendScanner.js && node --check server/monitoring/RuleAutoTrader.js && node --check server/security/Redactor.js && node --check server/utils/symbol.js && node --check server/utils/math.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "electron": "^38.1.0"
+  }
+}

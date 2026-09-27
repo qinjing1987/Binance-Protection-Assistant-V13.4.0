@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>币安合约保护助手 V13.3.5</title>
+<style>
+:root{
+  --bg:#0a0d12;--sidebar:#0a0d12;--panel:#11151c;--panel2:#161b24;--panel3:#0d1117;
+  --line:#232a35;--line2:#1b212a;--text:#eef2f7;--muted:#8996a8;--dim:#5c6980;
+  --green:#2bd98f;--green2:#0f6b4c;--red:#ff5c72;--red2:#6d2938;--yellow:#ffc35c;
+  --blue:#5fa2ff;--cyan:#3fd6e8;--purple:#a98cff;
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 14px 34px -12px rgba(0,0,0,.55);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.35);
+  --ease:cubic-bezier(.2,.7,.3,1);
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;background:
+  radial-gradient(1100px 620px at 82% -8%,rgba(63,214,232,.05),transparent 55%),
+  radial-gradient(900px 500px at -5% 10%,rgba(169,140,255,.045),transparent 50%),
+  var(--bg);
+  color:var(--text);font-family:"Segoe UI","Inter","PingFang SC","Microsoft YaHei",Arial,sans-serif;
+  font-size:13px;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;transition:all .15s var(--ease)}
+input,select{transition:border-color .15s var(--ease),box-shadow .15s var(--ease)}
+body{overflow:hidden}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#26303c;border-radius:99px;border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background:#33404f;background-clip:padding-box}
+
+.app{height:100vh;display:grid;grid-template-columns:206px 1fr;grid-template-rows:66px 1fr 30px}
+
+/* ---------- Sidebar ---------- */
+.sidebar{grid-row:1/4;background:linear-gradient(180deg,#0c1015 0%,#080b0f 100%);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:18px}
+.brand{display:flex;gap:11px;align-items:center;padding:4px 6px 12px;border-bottom:1px solid var(--line2);margin-bottom:2px}
+.logo{width:38px;height:38px;border:1px solid #2e4356;border-radius:11px;display:grid;place-items:center;color:var(--cyan);font-size:16px;font-weight:800;
+  background:linear-gradient(160deg,#132029,#0c151b);box-shadow:0 0 0 1px rgba(63,214,232,.06) inset,0 6px 18px rgba(63,214,232,.08)}
+.brand b{font-size:14px;letter-spacing:.2px}
+.brand small{display:block;color:var(--muted);font-size:9.5px;margin-top:3px;letter-spacing:.2px}
+.nav{display:grid;gap:4px}
+.nav button{border:1px solid transparent;background:transparent;color:#9aa7b8;text-align:left;padding:10px 12px;border-radius:9px;font-size:12.5px;letter-spacing:.15px;position:relative}
+.nav button:hover{background:#121922;color:#dfe8f0}
+.nav button.active{background:linear-gradient(90deg,rgba(63,214,232,.10),rgba(63,214,232,.02));color:#eaf6f8;box-shadow:inset 2.5px 0 0 var(--cyan)}
+.side-card{border:1px solid var(--line);border-radius:var(--radius-sm);background:#0e131a;padding:11px;box-shadow:var(--shadow-sm)}
+.side-card .row{display:flex;align-items:center;justify-content:space-between;padding:6px 0}
+.label{color:var(--muted);font-size:10px;letter-spacing:.2px}
+.mono{font-family:"JetBrains Mono",Consolas,monospace}
+.status-dot{width:7px;height:7px;border-radius:50%;display:inline-block;background:var(--green);margin-right:6px;box-shadow:0 0 0 3px rgba(43,217,143,.14)}
+.status-dot.off{background:#5c6980;box-shadow:none}
+.status-dot.warn{background:var(--yellow);box-shadow:0 0 0 3px rgba(255,195,92,.15)}
+.status-dot.bad{background:var(--red);box-shadow:0 0 0 3px rgba(255,92,114,.15)}
+
+/* ---------- Topbar ---------- */
+.topbar{grid-column:2;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid var(--line);background:rgba(10,13,18,.9);backdrop-filter:blur(6px)}
+.top-left{display:flex;align-items:center;gap:18px}
+.page-title{font-weight:800;font-size:17px;letter-spacing:.1px}
+.page-sub{font-size:10px;color:var(--muted);margin-top:3px;letter-spacing:.15px}
+.top-right{display:flex;gap:8px;align-items:center}
+.top-chip{display:flex;align-items:center;gap:7px;padding:8px 10px;background:#12161e;border:1px solid var(--line);border-radius:var(--radius-sm);font-size:10.5px}
+.btn{border:1px solid var(--line);background:#12161e;color:#dce5ee;border-radius:8px;padding:8px 12px;font-weight:600;font-size:12px;box-shadow:var(--shadow-sm)}
+.btn:hover{border-color:#3c556e;background:#171d27;transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn.primary{border-color:#296776;color:#8ce7f2;background:linear-gradient(160deg,#0f2329,#0c1b20)}
+.btn.primary:hover{border-color:#3a8695;box-shadow:0 0 0 1px rgba(63,214,232,.12),var(--shadow-sm)}
+.btn.green{border-color:#1e6a4e;color:#8bf3c3;background:linear-gradient(160deg,#0f231b,#0b1a14)}
+.btn.danger{border-color:#733042;color:#ff9fb0;background:linear-gradient(160deg,#241218,#1a0f13)}
+.btn.small{padding:6px 10px;font-size:11px;border-radius:7px}
+
+/* ---------- Main ---------- */
+.main{grid-column:2;min-height:0;overflow:auto;padding:14px;background:var(--bg)}
+.main::-webkit-scrollbar{width:10px}
+
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:12px}
+.kpi{background:linear-gradient(160deg,var(--panel),var(--panel3));border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;box-shadow:var(--shadow);transition:transform .15s var(--ease),border-color .15s var(--ease)}
+.kpi:hover{transform:translateY(-2px);border-color:#2d3a48}
+.kpi .value{font-size:19px;font-weight:800;margin-top:6px;letter-spacing:.1px}
+.kpi .sub{font-size:9.5px;color:var(--dim);margin-top:4px}
+
+.grid-main{display:grid;grid-template-columns:1.27fr .95fr .72fr;gap:12px}
+.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow)}
+.head{min-height:44px;padding:0 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:rgba(255,255,255,.015)}
+.head b{font-size:11.5px;letter-spacing:.5px;color:#dce4ee}
+.note{font-size:9.5px;color:var(--muted)}
+
+.position-wrap{min-height:292px}
+.table{width:100%;border-collapse:collapse;font-size:10.5px}
+.table th{color:#7a889b;font-weight:700;background:#0e1218;position:sticky;top:0;z-index:1;letter-spacing:.2px}
+.table th,.table td{padding:10px 8px;border-bottom:1px solid var(--line2);text-align:left}
+.table tbody tr{transition:background .12s var(--ease)}
+.table tbody tr:hover{background:#141a22}
+.pill{display:inline-flex;align-items:center;padding:3.5px 7px;border-radius:999px;font-size:9px;font-weight:800;border:1px solid #344456;letter-spacing:.2px}
+.pill.long{color:#9df6ca;background:#0f271e;border-color:#2b6d52}
+.pill.short{color:#ff9eb0;background:#29131a;border-color:#713544}
+.pill.ai{color:#8bcaff;background:#0d2030;border-color:#2d5f8d}
+.pill.manual{color:#b6c3d2;background:#141b25}
+.state-good{color:var(--green);font-weight:800}
+.state-warn{color:var(--yellow);font-weight:800}
+.state-bad{color:var(--red);font-weight:800}
+
+.detail{display:grid;grid-template-columns:1.1fr .9fr;gap:10px;padding:12px}
+.metric-card{background:var(--panel3);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px}
+.metric-card h4{margin:0 0 8px;color:#a9b7c8;font-size:10px;font-weight:700;letter-spacing:.2px}
+.metric-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.metric{padding:8px;background:#0b0f15;border:1px solid #182029;border-radius:8px;transition:border-color .15s var(--ease)}
+.metric:hover{border-color:#26313e}
+.metric .v{font-size:13px;font-weight:800;margin-top:4px}
+.progress{height:6px;background:#161c25;border-radius:999px;overflow:hidden}
+.progress > i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--cyan),var(--blue));width:0;transition:width .3s var(--ease)}
+
+.chart{height:235px;position:relative;background:
+  linear-gradient(rgba(120,140,160,.06) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(120,140,160,.06) 1px,transparent 1px);
+  background-size:40px 32px}
+.chart svg{width:100%;height:100%}
+.chart-top{position:absolute;left:12px;right:12px;top:10px;display:flex;justify-content:space-between;font-size:9.5px;color:var(--muted)}
+.chart-price{font-size:15px;font-weight:800;color:#eaf1f7}
+
+.signal{padding:12px}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.signal-main{display:grid;grid-template-columns:106px 1fr;gap:11px}
+.signal-dir{display:flex;align-items:center;justify-content:center;min-height:108px;border:1px solid #2a4d59;border-radius:var(--radius-sm);
+  background:linear-gradient(160deg,#0e2429,#0a181c);font-size:25px;font-weight:900;box-shadow:inset 0 0 0 1px rgba(63,214,232,.05)}
+.signal-body{display:grid;gap:8px}
+.signal-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.reason{padding:9px;border:1px solid var(--line);border-radius:8px;background:#0d1218;color:#c3cdda;font-size:10.5px;line-height:1.6;min-height:62px}
+.signal-actions{display:flex;gap:8px;margin-top:9px}
+
+.health{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:12px}
+.health-card{background:#0d1218;border:1px solid var(--line);border-radius:8px;padding:10px;transition:border-color .15s var(--ease)}
+.health-card:hover{border-color:#2a3846}
+.health-card b{display:block;font-size:13px;margin-top:5px}
+.health-line{display:flex;align-items:center;justify-content:space-between;font-size:10.5px;padding:4px 0}
+.health-line small{color:var(--muted)}
+
+.rule-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.rule-indicators{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:9px}
+.rule-indicator{background:#0c1119;border:1px solid var(--line);border-radius:9px;padding:9px;transition:border-color .15s var(--ease)}
+.rule-indicator:hover{border-color:#2a3846}
+.rule-indicator .iv{font-family:"JetBrains Mono",Consolas,monospace;font-size:11px;font-weight:800;margin-top:5px}
+.rule-indicator .isub{font-size:9px;color:var(--muted);margin-top:3px}
+.strategy-chip{display:inline-flex;align-items:center;gap:5px;border:1px solid #2a4454;background:linear-gradient(160deg,#0e1c24,#0b161c);border-radius:999px;padding:5px 9px;font-size:9px;color:#9fdce4}
+.rule-summary{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.rule-pill{border:1px solid var(--line);background:#0c121a;border-radius:999px;padding:5px 9px;font-size:9px;color:#b9c6d4}
+.rule-pill strong{color:#edf4fa}
+.exit-note{margin-top:8px;padding:8px 9px;border-left:2px solid var(--purple);background:#111426;color:#c1cbdb;font-size:9.5px;line-height:1.55;border-radius:0 6px 6px 0}
+.rule-decision-list{max-height:235px;overflow:auto;border-top:1px solid var(--line2);margin-top:9px}
+.rule-decision{display:grid;grid-template-columns:82px 52px 1fr;gap:8px;padding:8px 9px;border-bottom:1px solid var(--line2);font-size:9.5px;transition:background .12s var(--ease)}
+.rule-decision:hover{background:#121821}
+.rule-decision .sym{font-weight:800}
+.rule-decision .why{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.soft{color:var(--blue);font-weight:800}
+.rule-pass{color:var(--green);font-weight:800}
+.rule-block{color:var(--yellow);font-weight:800}
+.rule-fail{color:var(--red);font-weight:800}
+.rank-list{max-height:265px;overflow:auto}
+.trend-summary{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;padding:10px}
+.trend-alerts{max-height:210px;overflow:auto;border-top:1px solid var(--line)}
+.trend-alert{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 11px;border-bottom:1px solid var(--line2);font-size:10.5px;transition:background .12s var(--ease)}
+.trend-alert:hover{background:#121821}
+.trend-arrow{font-size:14px;font-weight:900}
+.rank{display:flex;justify-content:space-between;align-items:center;padding:9px 11px;border-bottom:1px solid var(--line2);font-size:10.5px;cursor:pointer;transition:background .12s var(--ease)}
+.rank:hover{background:#141a22}
+.rank b{font-size:10.5px}
+.vol{color:var(--dim);font-size:9px}
+.g{color:var(--green);font-weight:800}
+.r{color:var(--red);font-weight:800}
+.y{color:var(--yellow);font-weight:800}
+.c{color:var(--cyan);font-weight:800}
+.b{color:var(--blue);font-weight:800}
+
+.log-panel{margin-top:12px}
+.log-toolbar{display:flex;gap:7px;align-items:center}
+.log{height:170px;overflow:auto;padding:9px 11px;font:10.5px/1.7 "JetBrains Mono",Consolas,monospace;background:#0a0d12}
+.log div{white-space:nowrap}
+.log .time{color:#5d6a7b}
+.log .info{color:#bdc9d6}
+.log .good{color:var(--green)}
+.log .warn{color:var(--yellow)}
+.log .bad{color:var(--red)}
+
+.footer{grid-column:2;background:#090c10;border-top:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 12px;color:#69768a;font-size:9.5px}
+.footer span:last-child{color:#7c8aa0}
+
+/* ---------- Modal / Settings ---------- */
+.overlay{position:fixed;inset:0;background:rgba(6,8,11,.78);backdrop-filter:blur(2px);display:none;align-items:center;justify-content:center;z-index:50}
+.modal{width:min(980px,92vw);height:min(92vh,860px);max-height:calc(100vh - 24px);overflow:hidden;display:flex;flex-direction:column;background:#0f141b;border:1px solid #2c3947;border-radius:16px;box-shadow:0 30px 100px rgba(0,0,0,.65),0 0 0 1px rgba(63,214,232,.03)}
+.modal-head{height:54px;min-height:54px;padding:0 16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);background:rgba(255,255,255,.015)}
+.modal-title{font-size:15px;font-weight:800;letter-spacing:.1px}
+.settings-body{display:grid;grid-template-columns:158px minmax(0,1fr);flex:1;min-height:0;overflow:hidden}
+.settings-nav{padding:11px;border-right:1px solid var(--line);background:#0b0f15;overflow:auto;min-height:0}
+.settings-nav button{display:block;width:100%;border:1px solid transparent;background:transparent;color:#9aa8b9;padding:10px 11px;border-radius:8px;text-align:left;font-size:12px;margin-bottom:2px}
+.settings-nav button:hover{background:#121922;color:#dfe8f0}
+.settings-nav button.active{background:linear-gradient(90deg,rgba(63,214,232,.09),transparent);border-color:#25404d;color:#e8eef5;box-shadow:inset 2px 0 0 var(--cyan)}
+.settings-pane{padding:15px;overflow-y:auto;overflow-x:hidden;min-width:0;min-height:0;scrollbar-gutter:stable}
+.box{border:1px solid var(--line);border-radius:11px;background:#12171f;padding:14px;margin-bottom:12px}
+.box h3{font-size:11.5px;margin:0 0 11px;color:#e2e9f1;letter-spacing:.2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field{display:grid;gap:6px;color:#93a1b1;font-size:10.5px}
+.field input,.field select{padding:9px 11px;border:1px solid #2b3948;background:#0b0f15;color:#edf2f7;border-radius:8px;outline:none}
+.field input:focus,.field select:focus{border-color:#4e93a8;box-shadow:0 0 0 3px rgba(63,214,232,.1)}
+.hint{font-size:10px;color:#718092;line-height:1.6;margin-top:7px}
+.switchline{display:flex;align-items:center;justify-content:space-between;padding:9px 0}
+.switchline input{accent-color:var(--green);transform:scale(1.1)}
+.form-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:11px}
+.test-result{margin-top:10px;padding:9px;border-radius:8px;background:#0b0f15;border:1px solid var(--line);font:10.5px/1.65 "JetBrains Mono",Consolas,monospace;color:#b8c7d7}
+.test-result.good{border-color:#215f49;color:#96efc7}
+.test-result.bad{border-color:#6a2b39;color:#ff99ac}
+
+.toast{position:fixed;right:20px;bottom:44px;z-index:100;min-width:260px;max-width:380px;padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:#12171f;box-shadow:var(--shadow);display:none;font-size:11px}
+.toast.good{border-color:#1d624b}
+.toast.bad{border-color:#6c2c3b}
+.toast.warn{border-color:#6a5931}
+
+@media(max-height:700px){.modal{height:calc(100vh - 16px);max-height:calc(100vh - 16px)}.modal-head{height:48px;min-height:48px}.settings-pane{padding:12px}.box{padding:12px;margin-bottom:10px}}
+@media(max-width:1300px){.kpis{grid-template-columns:repeat(3,1fr)}.grid-main{grid-template-columns:1fr 1fr}.right-col{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr}.right-col>.panel{min-height:0}}
+@media(max-width:980px){.app{grid-template-columns:1fr;grid-template-rows:auto 1fr 27px}.sidebar{display:none}.topbar,.footer{grid-column:1}.grid-main{grid-template-columns:1fr}.right-col{display:grid;grid-template-columns:1fr}.kpis{grid-template-columns:repeat(2,1fr)}}
+
+/* ---------- V13.4 Strategy Command Center ---------- */
+.rule-command{padding:12px 14px 14px;background:linear-gradient(180deg,#101720,#0d1219)}
+.rule-topline{display:grid;grid-template-columns:1.3fr repeat(5,minmax(90px,.55fr));gap:8px;align-items:stretch}.rule-hero{padding:11px 12px;border:1px solid #263747;border-radius:10px;background:linear-gradient(145deg,#12212a,#0d151c)}.rule-hero .title{font-size:12px;font-weight:800;color:#eaf6f8}.rule-hero .sub{font-size:9.5px;color:#7f92a6;margin-top:5px;line-height:1.5}.rule-kpi{padding:10px;border:1px solid var(--line);border-radius:10px;background:#0b1016}.rule-kpi .num{font-size:17px;font-weight:850;margin-top:4px}.rule-kpi .caption{font-size:9px;color:var(--dim);margin-top:3px}.rule-flow{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;margin-top:10px}.flow-step{border:1px solid #202b37;border-radius:8px;padding:8px;background:#0b1016;min-width:0}.flow-step b{display:block;font-size:9.5px}.flow-step span{display:block;color:#718094;font-size:8.5px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.flow-step.pass{border-color:#285a47}.flow-step.block{border-color:#63303c}.flow-step.wait{border-color:#574a2d}.rule-diagnostics{display:grid;grid-template-columns:1fr 1.7fr;gap:10px;margin-top:10px}.rule-summary-card{border:1px solid var(--line);border-radius:10px;background:#0b1016;padding:10px}.rule-summary-card h4{margin:0 0 8px;font-size:10px;color:#aebdce}.rule-reasons{display:flex;flex-wrap:wrap;gap:5px}.reason-chip{padding:4px 6px;border-radius:6px;background:#151b23;border:1px solid #283341;color:#aeb9c7;font-size:8.5px}.reason-chip.bad{border-color:#65313e;color:#ff9eae;background:#201117}.rule-decision-list.v134{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;max-height:420px;overflow:auto;padding-right:2px}.rule-decision.v134{display:grid;grid-template-columns:100px 55px 1fr;gap:7px;align-items:center;border:1px solid #202a35;border-radius:8px;padding:7px 8px;background:#0b1016;min-width:0}.rule-decision.v134 .sym{font-weight:800;color:#e3ebf3}.rule-decision.v134 .why{font-size:9px;color:#9eabba;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rule-decision.v134 .mini{font-size:8px;padding:2px 4px;border-radius:4px;border:1px solid #3b3033;color:#ff9eae}.rule-decision.v134.ready{border-color:#245844}.log-toolbar{display:flex;align-items:center;gap:6px}.log-filter{height:30px;padding:0 8px;border:1px solid #2b3948;background:#0b0f15;color:#dce5ee;border-radius:7px;font-size:10px}.log-filter.search{width:180px}.log-count{font-size:9px;color:#718094;margin-left:3px}@media(max-width:1200px){.rule-topline{grid-template-columns:1fr repeat(3,1fr)}.rule-hero{grid-column:1/-1}.rule-flow{grid-template-columns:repeat(3,1fr)}}@media(max-width:760px){.rule-topline{grid-template-columns:repeat(2,1fr)}.rule-hero{grid-column:1/-1}.rule-diagnostics{grid-template-columns:1fr}.rule-decision-list.v134{grid-template-columns:1fr}.rule-flow{grid-template-columns:repeat(2,1fr)}.log-filter.search{width:110px}}
+</style>
+</head>
+<body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand"><div class="logo">B</div><div><b>合约保护助手</b><small>V13.3.5 · 防守优先</small></div></div>
+  <nav class="nav">
+    <button class="active" onclick="focusSection('overview',this)">▣ 总览</button>
+    <button onclick="focusSection('positionsPanel',this)">◈ 实时持仓</button>
+    <button onclick="focusSection('aiPanel',this)">✦ AI 信号</button>
+    <button onclick="focusSection('monitorPanel',this)">↕ SuperTrend监控</button>
+    <button onclick="focusSection('logPanel',this)">≡ 系统日志</button>
+  </nav>
+  <div class="side-card">
+    <div class="row"><span class="label">币安</span><span id="sideBinance"><span class="status-dot warn"></span>未连接</span></div>
+    <div class="row"><span class="label">自动保护</span><span id="sideProtect"><span class="status-dot"></span>开启</span></div>
+    <div class="row"><span class="label">AI 实盘</span><span id="sideAI"><span class="status-dot off"></span>关闭</span></div>
+    <div class="row"><span class="label">持仓模式</span><span id="sideMode">—</span></div>
+  </div>
+  <div class="side-card" style="margin-top:auto">
+    <div class="label">系统时间</div><div id="sideClock" class="mono" style="font-size:10px;margin-top:5px">—</div>
+    <div class="label" style="margin-top:8px">时间偏差</div><div id="sideOffset" class="mono" style="font-size:10px;margin-top:5px">—</div>
+  </div>
+</aside>
+
+<header class="topbar">
+  <div class="top-left"><div><div class="page-title">币安合约保护助手</div><div class="page-sub">自动保护真实仓位 · Binance USDⓈ-M · 不加仓 / 不减仓 / AI 不决定仓位</div></div></div>
+  <div class="top-right">
+    <div class="top-chip" id="topBinance"><span class="status-dot warn"></span>币安：未连接</div>
+    <div class="top-chip" id="topProtect"><span class="status-dot"></span>保护：开启</div>
+    <div class="top-chip" id="topAI"><span class="status-dot off"></span>AI：关闭</div>
+    <div class="top-chip" id="topRule"><span class="status-dot off"></span>规则交易：关闭</div>
+    <button class="btn small" onclick="openSettings()">设置中心</button>
+    <button class="btn small primary" onclick="syncNow()">⟳ 同步复核</button>
+    <button class="btn small danger" onclick="stopAI()">■ 停止 AI</button>
+    <button class="btn small danger" onclick="flattenAll()">⚠ 全部平仓</button>
+  </div>
+</header>
+
+<main class="main" id="overview">
+  <section class="kpis">
+    <div class="kpi"><div class="label">账户权益</div><div id="equity" class="value">—</div><div class="sub">USDT Futures</div></div>
+    <div class="kpi"><div class="label">可用余额</div><div id="available" class="value">—</div><div class="sub">可用保证金</div></div>
+    <div class="kpi"><div class="label">今日盈亏</div><div id="dailyPnl" class="value">—</div><div class="sub">已实现 - 手续费 + Funding</div></div>
+    <div class="kpi"><div class="label">今日风险</div><div id="dailyRisk" class="value">—</div><div class="sub">日亏损上限动态</div></div>
+    <div class="kpi"><div class="label">当前持仓</div><div id="posCount" class="value">0</div><div class="sub" id="protectionCount">已保护 0</div></div>
+    <div class="kpi"><div class="label">通信状态</div><div id="transport" class="value" style="font-size:15px">REST SAFE</div><div class="sub" id="lastSync">最后同步 —</div></div>
+  </section>
+
+  <section class="grid-main">
+    <div class="col">
+      <div class="panel position-wrap" id="positionsPanel">
+        <div class="head"><b>实时持仓</b><span class="note">按 Symbol + PositionSide 管理</span></div>
+        <div style="overflow:auto;max-height:300px" id="positions"><div class="empty" style="padding:28px;text-align:center;color:var(--muted)">尚未连接 Binance</div></div>
+      </div>
+      <div class="panel">
+        <div class="head"><b>选中仓位 / 精确保护诊断</b><span class="note" id="selectedTitle">未选择</span></div>
+        <div class="detail">
+          <div class="metric-card">
+            <h4>价格与盈亏</h4>
+            <div class="metric-grid">
+              <div class="metric"><div class="label">方向</div><div class="v" id="selSide">—</div></div>
+              <div class="metric"><div class="label">持仓数量</div><div class="v mono" id="selQty">—</div></div>
+              <div class="metric"><div class="label">实际杠杆</div><div class="v" id="selLevTop">—</div></div>
+              <div class="metric"><div class="label">开仓价</div><div class="v mono" id="selEntry">—</div></div>
+              <div class="metric"><div class="label">标记价</div><div class="v mono" id="selMark">—</div></div>
+              <div class="metric"><div class="label">仓位收益率（PnL/保证金）</div><div class="v" id="selReturn">—</div></div><div class="metric"><div class="label">当前价格变化</div><div class="v" id="selPriceMove">—</div></div>
+              <div class="metric"><div class="label">实际盈亏</div><div class="v" id="selPnl">—</div></div>
+              <div class="metric"><div class="label">当前账户权益</div><div class="v" id="selEquity">—</div></div>
+              <div class="metric"><div class="label">止损后预计权益（估算）</div><div class="v" id="selAfterSL">—</div></div>
+              <div class="metric"><div class="label">止盈后预计权益（估算）</div><div class="v" id="selAfterTP">—</div></div><div class="sub" id="selSnapshot" style="grid-column:1/-1">数据快照：—</div>
+              <div class="metric"><div class="label">理论 SL</div><div class="v mono" id="selSL">—</div></div>
+              <div class="metric"><div class="label">Binance 实际 SL</div><div class="v mono" id="selActualSL">—</div></div>
+              <div class="metric"><div class="label">理论 TP</div><div class="v mono" id="selTP">—</div></div>
+              <div class="metric"><div class="label">Binance 实际 TP</div><div class="v mono" id="selActualTP">—</div></div>
+              <div class="metric"><div class="label">保护状态</div><div class="v" id="selProtect">—</div></div>
+              <div class="metric"><div class="label">移动止盈止损</div><div class="v" id="selTrailingMode">—</div></div>
+            </div>
+          </div>
+          <div class="metric-card">
+            <h4>风险监控</h4>
+            <div class="health-line"><small>杠杆</small><span id="selLev">—</span></div>
+            <div class="health-line"><small>保证金</small><span id="selMargin">—</span></div>
+            <div class="health-line"><small>强平价</small><span id="selLiq">—</span></div>
+            <div class="health-line"><small>距强平</small><span id="selLiqPct">—</span></div>
+            <div class="health-line"><small>SL / TP 开仓价幅度</small><span id="selEntryRisk">—</span></div><div class="health-line"><small>SL距标记 / TP距标记</small><span id="selDistances">—</span></div>
+            <div class="health-line"><small>按当前真实杠杆折算（保证金影响）</small><span id="selMarginImpact">—</span></div><div class="health-line"><small>按当前持仓数量估算 PnL</small><span id="selQtyPnl">—</span></div><div class="health-line"><small>保护计算方式</small><span id="selCalcMode">—</span></div>
+            <div class="health-line"><small>RR</small><span id="selRR">—</span></div>
+            <div class="health-line"><small>强平缓冲</small><span id="selBuffer">—</span></div>
+            <div class="health-line"><small>Algo ID</small><span id="selAlgo" class="mono">—</span></div>
+            <div class="health-line"><small>Algo 状态</small><span id="selAlgoStatus">—</span></div>
+            <div class="health-line"><small>移动保护激活 / 回调</small><span id="selTrailingConfig">—</span></div>
+            <div style="margin-top:7px"><div class="progress"><i id="liqBar"></i></div></div>
+          </div>
+        </div>
+        <div id="diagNotice" class="hint" style="margin-top:8px">点击仓位后读取 Binance Algo Orders；理论值与实际值分开显示。</div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="panel">
+        <div class="head"><b id="chartTitle">行情 · BTCUSDT</b><span class="note" id="chartStatus">等待数据</span></div>
+        <div class="chart"><div class="chart-top"><span id="chartPrice">—</span><span id="chartChange">24H —</span></div><svg viewBox="0 0 900 235" preserveAspectRatio="none"><polyline id="priceLine" points="0,180 45,174 90,184 135,150 180,161 225,135 270,149 315,116 360,130 405,100 450,121 495,92 540,107 585,76 630,91 675,61 720,76 765,49 810,63 855,46 900,54" fill="none" stroke="#42d9e8" stroke-width="2.2"/></svg></div>
+        <div class="health" style="border-top:1px solid var(--line)"><div class="health-card"><div class="label">24H 高 / 低</div><b id="hiLo">— / —</b></div><div class="health-card"><div class="label">24H 成交额</div><b id="volume">—</b></div><div class="health-card"><div class="label">Mark Price</div><b id="markPrice">—</b></div><div class="health-card"><div class="label">资金费率</div><b id="funding" class="c">—</b></div></div>
+      </div>
+
+      <div class="panel" id="aiPanel">
+        <div class="head"><b>AI 信号 / 风控闸门</b><span class="note" id="aiTime">尚未分析</span></div>
+        <div class="signal"><div class="signal-main"><div class="signal-dir c" id="aiDir">HOLD</div><div class="signal-body"><div class="signal-row"><div class="metric"><div class="label">候选合约</div><div class="v" id="aiSymbol">—</div></div><div class="metric"><div class="label">置信度</div><div class="v" id="aiConf">—</div></div><div class="metric"><div class="label">信号状态</div><div class="v" id="aiGate">等待</div></div></div><div class="progress"><i id="aiBar"></i></div><div class="reason" id="aiReason">AI 只允许提供 LONG / SHORT / HOLD、SL、TP、置信度和理由；数量与杠杆由本地 RiskManager 决定。</div></div></div><div class="metrics" style="margin-top:8px"><div class="metric"><div class="label">止损</div><div class="v" id="aiSL">—</div></div><div class="metric"><div class="label">止盈</div><div class="v" id="aiTP">—</div></div><div class="metric"><div class="label">RR</div><div class="v" id="aiRR">—</div></div></div><div class="signal-actions"><button class="btn primary small" onclick="analyzeAI()">✦ 开始 AI 分析</button><button class="btn green small" onclick="executeAI()">▶ 执行一次</button><button class="btn small" onclick="openSettings('ai')">AI 设置</button></div></div>
+      </div>
+      <div class="panel" id="ruleTradingPanel">
+        <div class="head"><b>规则自动交易 · V13.4 策略指挥台</b><span class="note" id="ruleTradingStatus">关闭</span></div>
+        <div class="rule-command">
+          <div class="rule-topline">
+            <div class="rule-hero"><div class="title">Top N → 5m趋势 → 1m回踩 → LIMIT</div><div class="sub" id="ruleScanInfo">等待扫描 · 默认 Top20 × 2 = 40候选</div></div>
+            <div class="rule-kpi"><div class="label">候选池</div><div class="num" id="ruleCandidates">0</div><div class="caption">多空各 Top N</div></div>
+            <div class="rule-kpi"><div class="label">指标通过</div><div class="num g" id="ruleEligible">0</div><div class="caption">进入下单闸门</div></div>
+            <div class="rule-kpi"><div class="label">本轮下单</div><div class="num" id="ruleOrdersPlaced">0</div><div class="caption">LIMIT</div></div>
+            <div class="rule-kpi"><div class="label">待成交</div><div class="num y" id="rulePending">0</div><div class="caption">当前队列</div></div>
+            <div class="rule-kpi"><div class="label">扫描耗时</div><div class="num mono" id="ruleScanMs">—</div><div class="caption">ms</div></div>
+          </div>
+          <div class="rule-flow"><div class="flow-step wait" id="flowRank"><b>① Top N</b><span>候选池</span></div><div class="flow-step wait" id="flowTrend"><b>② 5m ST</b><span>方向一致</span></div><div class="flow-step wait" id="flowRsi"><b>③ 1m RSI</b><span>深度/回升/斜率</span></div><div class="flow-step wait" id="flowVol"><b>④ Volume</b><span>参与度</span></div><div class="flow-step wait" id="flowEntry"><b>⑤ Structure</b><span>回撤 LIMIT</span></div><div class="flow-step wait" id="flowRisk"><b>⑥ Risk</b><span>账户/数量/保护</span></div></div>
+          <div class="rule-diagnostics">
+            <div class="rule-summary-card"><h4>本轮阻断原因</h4><div class="rule-reasons" id="ruleReasons"><span class="reason-chip">等待扫描</span></div><div class="reason" id="ruleReason" style="margin-top:8px">等待扫描。</div></div>
+            <div class="rule-summary-card"><h4>逐币诊断 · 实际指标值 + 全部失败条件</h4><div class="rule-decision-list v134" id="ruleDecisionList"><div style="padding:18px;text-align:center;color:var(--muted);grid-column:1/-1">扫描后显示 Top N × 2 的逐币诊断。</div></div></div>
+          </div>
+          <div class="signal-row" style="margin-top:9px"><div class="metric"><div class="label">5m SuperTrend</div><div class="v" id="ruleSt5">等待</div></div><div class="metric"><div class="label">1m RSI</div><div class="v" id="ruleBb">等待</div></div><div class="metric"><div class="label">1m Volume</div><div class="v" id="ruleMacd">等待</div></div><div class="metric"><div class="label">最近信号</div><div class="v" id="ruleLastSignal">暂无</div></div><div class="metric"><div class="label">待成交 LIMIT</div><div class="v" id="rulePendingList">暂无</div></div></div>
+          <div class="rule-summary" id="ruleSummary" style="margin-top:8px"></div><div class="rule-summary" id="ruleStats"></div><div class="exit-note" id="ruleLastExit">指标平仓：暂无</div>
+          <div class="signal-actions"><button class="btn primary small" onclick="scanRuleTrading()">立即扫描</button><button class="btn small" onclick="openSettings('rule')">策略设置</button></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col right-col" id="monitorPanel">
+      <div class="panel">
+        <div class="head"><b>风险总览</b><span class="note">UTC 00:00 日界线</span></div>
+        <div class="health"><div class="health-card"><div class="label">日亏损 / 上限</div><b id="riskText">— / 关闭</b><div class="progress" style="margin-top:7px"><i id="riskBar"></i></div></div><div class="health-card"><div class="label">连续亏损</div><b id="lossStreak">0 次</b></div><div class="health-card"><div class="label">AI 持仓</div><b id="aiPositions">0 / 3</b></div><div class="health-card"><div class="label">时间偏差</div><b id="offsetValue">—</b></div></div>
+      </div>
+      <div class="panel" id="supertrendPanel"><div class="head"><b>SuperTrend 转换监控</b><span class="note">1m · 每1分钟</span></div><div class="trend-summary"><div class="health-card"><div class="label">当前看涨</div><b id="stUp" class="g">—</b></div><div class="health-card"><div class="label">当前看跌</div><b id="stDown" class="r">—</b></div><div class="health-card"><div class="label">最近转换</div><b id="stFlipCount" class="y">—</b></div><div class="health-card"><div class="label">扫描状态</div><b id="stStatus">等待</b></div></div><div class="health" style="padding-top:0"><div class="health-card"><div class="label">上次扫描</div><b id="stLastScan">—</b></div><div class="health-card"><div class="label">下次扫描</div><b id="stNextScan">—</b></div></div><div class="trend-alerts" id="stAlerts"><div style="padding:18px;text-align:center;color:var(--muted)">等待首次扫描；首次扫描仅建立基线，不提示历史转换。</div></div></div>
+      <div class="panel"><div class="head"><b>保护健康度</b><span class="note">交易所端为主</span></div><div class="health"><div class="health-card"><div class="label">已保护</div><b id="healthyCount" class="g">0</b></div><div class="health-card"><div class="label">保护中</div><b id="protectingCount" class="y">0</b></div><div class="health-card"><div class="label">保护异常</div><b id="errorCount" class="r">0</b></div><div class="health-card"><div class="label">WS</div><b id="wsState">—</b></div></div></div>
+    </div>
+  </section>
+
+  <section class="panel log-panel" id="logPanel">
+    <div class="head"><div><b>系统事件日志</b><span class="note" style="margin-left:8px">10MB轮转 · 保留5份 · 服务端筛选</span><span id="logCount" class="log-count">0条</span></div><div class="log-toolbar"><select id="logLevel" class="log-filter" onchange="loadLogs()"><option value="">全部级别</option><option value="INFO">INFO</option><option value="WARN">WARN</option><option value="ERROR">ERROR</option></select><input id="logQuery" class="log-filter search" placeholder="搜索关键词" onkeydown="if(event.key==='Enter')loadLogs()"><button class="btn small" onclick="loadLogs()">刷新</button><button class="btn small" onclick="exportLogs()">导出</button><button class="btn small" onclick="clearLogView()">清屏</button><button class="btn small danger" onclick="clearServerLogs()">清空文件</button></div></div>
+    <div class="log" id="logs"></div>
+  </section>
+</main>
+
+<footer class="footer"><span>Binance USDⓈ-M · 交易所保护优先 · 本软件无加仓/减仓模块</span><span id="footerStatus">V13.3 最终轻量回踩 · 低延迟保护</span><span id="clock">—</span></footer>
+</div>
+
+<div class="overlay" id="settingsOverlay" onclick="closeSettings(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head"><div class="modal-title">设置中心</div><button class="btn small" onclick="closeSettings()">关闭</button></div>
+    <div class="settings-body">
+      <div class="settings-nav">
+        <button id="tab-binance" class="active" onclick="showTab('binance')">① 币安账户</button>
+        <button id="tab-ai" onclick="showTab('ai')">② AI 大模型</button>
+        <button id="tab-rule" onclick="showTab('rule')">③ 规则自动交易</button>
+        <button id="tab-protect" onclick="showTab('protect')">④ 自动保护</button>
+        <button id="tab-risk" onclick="showTab('risk')">⑤ AI 风控</button>
+        <button id="tab-system" onclick="showTab('system')">⑥ 系统与诊断</button>
+      </div>
+      <div class="settings-pane">
+        <section id="pane-binance" class="tab-pane">
+          <div class="box"><h3>币安账户连接</h3><div class="grid2"><label class="field">API Key<input id="binanceKey" type="password" placeholder="粘贴 Binance API Key"></label><label class="field">Secret Key<input id="binanceSecret" type="password" placeholder="粘贴 Binance API Secret"></label><label class="field">交易环境<select id="sandbox"><option value="false">正式盘</option><option value="true">测试网</option></select></label><label class="field">软件预期持仓模式<select id="hedgeMode"><option value="true">Hedge Mode（双向）</option><option value="false">One-way（单向）</option></select></label></div><div class="hint">提现权限必须关闭。正式使用建议在 Binance API 管理页面设置可信 IP。软件不会在日志中记录 Secret。</div><div class="form-actions"><button class="btn primary" onclick="testBinance()">测试 Binance 连接</button></div><div id="binanceTestResult" class="test-result" style="display:none"></div></div>
+        </section>
+        <section id="pane-ai" class="tab-pane" style="display:none">
+          <div class="box">
+            <h3>AI 多供应商 / 自动切换</h3>
+            <div class="switchline"><span>供应商自动故障切换 <span class="hint">一家超时/HTTP错误时尝试下一家</span></span><input id="aiFailover" type="checkbox"></div><div class="switchline"><span>免费 AI 优先 <span class="hint">优先 OpenRouter / Gemini / Ollama；免费服务不可用时仍可回退其它已启用供应商</span></span><input id="aiFreeFirst" type="checkbox"></div>
+            <div id="providerList"></div>
+            <div class="form-actions"><button class="btn" onclick="enableFreeAI()">启用免费云端 AI</button><button class="btn" onclick="enableLocalAI()">启用本地免 Key AI</button><button class="btn primary" onclick="testAI()">测试全部已启用供应商</button></div>
+            <div class="hint">免费云端：OpenRouter 免费模型路由、Gemini 免费层，通常需要各自的免费 API Key；本地：Ollama + 本机模型，免 API Key。免费层会受供应商当前额度、限流和模型政策限制；AI 不参与止损保护主链路。</div>
+            <div id="aiTestResult" class="test-result" style="display:none"></div>
+          </div>
+        </section>
+        <section id="pane-rule" class="tab-pane" style="display:none">
+          <div class="box"><h3>规则自动交易 · V13.3 RSI深度回踩</h3>
+            <div class="switchline"><span>启用规则自动交易 <span class="hint">每分钟扫描涨跌幅 Top N；默认多头 Top20 + 空头 Top20，共40个候选；5m SuperTrend 定方向，1m RSI 参数由后端实时显示，深度回看6根且排除当前K；同一根K同时做斜率确认，1m成交量过滤低参与度，结构 + 回撤价格确定被动 LIMIT；5m增加轻量震荡过滤。</span></span><input id="ruleEnabled" type="checkbox" onchange="toggleRuleAuto(this)"></div>
+            <div class="grid2">
+              <label class="field">涨跌幅候选池 Top N（多/空各N）<input id="ruleTopN" type="number" min="1" max="50"></label><label class="field">自动交易杠杆<input id="ruleLev" type="number" min="1" max="125"></label>
+              <label class="field">单笔账户风险 %<input id="ruleRisk" type="number" min="0.1" max="2" step="0.1"></label>
+              <label class="field">最大实持仓<input id="ruleMaxPos" type="number" min="1" max="5"></label>
+              <label class="field">最大待成交 LIMIT<input id="ruleMaxPending" type="number" min="1" max="10"></label>
+              <label class="field">挂单有效期 分钟<input id="ruleTtl" type="number" min="1" max="30"></label>
+              <label class="field">同币冷却 分钟<input id="ruleCooldown" type="number" min="10" max="240"></label>
+              <label class="field">5m震荡回看 K线<input id="ruleStateLookback" type="number" min="4" max="10"></label>
+              <label class="field">5m最多翻转次数<input id="ruleStateFlips" type="number" min="1" max="5"></label>
+              <label class="field">5m最小波动 ATR<input id="ruleStateRange" type="number" min="0.5" max="3" step="0.1"></label>
+              <label class="field">5m趋势效率阈值<input id="ruleStateEff" type="number" min="0" max="0.8" step="0.01"></label>
+              <label class="field">RSI 周期<input id="ruleRsiPeriod" type="number" min="7" max="30"></label>
+              <label class="field">RSI 做多触发<input id="ruleRsiLong" type="number" min="30" max="49"></label>
+              <label class="field">RSI 做空触发<input id="ruleRsiShort" type="number" min="51" max="70"></label>
+              <label class="field">RSI 触发回看<input id="ruleRsiLookback" type="number" min="1" max="3"></label>
+              <label class="field">RSI 做多深度<input id="ruleRsiLongDepth" type="number" min="20" max="49" step="0.5"></label>
+              <label class="field">RSI 做空深度<input id="ruleRsiShortDepth" type="number" min="51" max="80" step="0.5"></label>
+              <label class="field">RSI 深度回看 K线<input id="ruleRsiDepthLookback" type="number" min="3" max="12"></label>
+              <label class="field">成交量均值周期<input id="ruleVolPeriod" type="number" min="10" max="50"></label>
+              <label class="field">最低成交量倍数<input id="ruleVolMin" type="number" min="0.5" max="2" step="0.1"></label>
+              <label class="field">强成交量倍数<input id="ruleVolStrong" type="number" min="0.5" max="2" step="0.1"></label>
+              <label class="field">结构回看 K线<input id="ruleEntryLookback" type="number" min="2" max="5"></label>
+              <label class="field">结构入场偏移 ATR<input id="ruleEntryOffset" type="number" min="0" max="0.8" step="0.05"></label>
+              <label class="field">入场回撤比例<input id="ruleEntryRetrace" type="number" min="0.2" max="0.7" step="0.01"><span class="hint">默认 0.38：结构极值→触发K线收盘价的回撤比例。</span></label>
+              <label class="field">最大入场距离 ATR<input id="ruleEntryAtr" type="number" min="0.2" max="2" step="0.1"></label>
+              <label class="field">SuperTrend翻转等待<input id="ruleFlipBars" type="number" min="0" max="5"></label>
+              <label class="field">结构止损最小 %<input id="ruleMinSL" type="number" min="0.2" max="2" step="0.1"></label>
+              <label class="field">结构止损最大 %<input id="ruleMaxSL" type="number" min="0.5" max="5" step="0.1"></label>
+              <label class="field">结构止盈 RR<input id="ruleRR" type="number" min="1.2" max="4" step="0.1"></label>
+              <label class="field">多头 RSI 退出<input id="ruleExitRsiLong" type="number" min="50" max="80"></label>
+              <label class="field">空头 RSI 退出<input id="ruleExitRsiShort" type="number" min="20" max="50"></label>
+              <label class="field">浮亏反转确认 K线<input id="ruleLossExitBars" type="number" min="2" max="5"></label>
+            </div>
+            <div class="switchline"><span>指标退出 / 失效保护 <span class="hint">浮盈：RSI或5m SuperTrend反向可退出；浮亏：RSI + 5m SuperTrend同时反向并连续确认2根1m K线后主动退出；交易所硬 SL/TP 始终保留。</span></span><input id="ruleExitIndicator" type="checkbox"></div>
+            <div id="ruleStats" class="health" style="margin-top:10px;gap:6px"><span class="rule-pill">今日信号 <strong>0</strong></span></div><div class="hint"><b>V13.4 策略：</b>涨跌幅候选池由 Top N 配置，默认多头 Top20 + 空头 Top20；5m SuperTrend 确定方向，轻量震荡过滤识别市场状态；1m RSI 的触发、深度、回看参数直接读取后端当前配置；1m 成交量确认参与度；最近K线结构 + 回撤价格确定 LIMIT 与结构止损。浮亏仓位在 RSI 与5m趋势共同反向并连续确认后主动退出。</div>
+          </div>
+        </section>
+<section id="pane-protect" class="tab-pane" style="display:none">
+          <div class="box"><h3>自动保护 · 杠杆风险转换</h3><div class="switchline"><span>自动保护真实仓位 <span class="hint">（默认开启）</span></span><input id="autoProtection" type="checkbox" onchange="toggleProtection(this)"></div><div class="switchline"><span>移动止盈止损 <span class="hint">盈利达到激活值后启用 Binance 原生追踪，固定 TP 继续保留</span></span><input id="trailingEnabled" type="checkbox"></div><div class="grid2"><label class="field">保护计算方式<select id="protectMode"><option value="MARGIN">按保证金风险（推荐）</option><option value="PRICE">按价格幅度</option></select></label><label class="field">强平安全缓冲 pp<input id="liqBuffer" type="number" min="0" max="5" step="0.1"></label><label class="field">止损：保证金影响 %<input id="slMargin" type="number" min="1" max="80" step="1"></label><label class="field">止盈：保证金影响 %<input id="tpMargin" type="number" min="1" max="200" step="1"></label><label class="field">止损：价格幅度 %<input id="sl" type="number" min="0.1" max="20" step="0.1"></label><label class="field">止盈：价格幅度 %<input id="tp" type="number" min="0.1" max="50" step="0.1"></label><label class="field">快速固定 SL/TP<select id="fastProtect"><option value="true">开启（SL优先提交；TP异步排队，限频期间本地 Mark Price 继续兜底）</option><option value="false">关闭（SL/TP同步等待 Binance Algo 限频）</option></select></label><label class="field">条件单 priceProtect<select id="priceProtect"><option value="false">关闭（保护优先）</option><option value="true">开启</option></select></label><label class="field">移动保护激活盈利 %<input id="trAct" type="number" min="0.1" max="20" step="0.1"></label><label class="field">移动保护回调 %<input id="trCb" type="number" min="0.1" max="10" step="0.1"><span class="hint">价格向有利方向移动后，按该回撤比例触发移动保护</span></label></div><div class="hint"><b>核心规则：</b>推荐“按保证金风险”。例如 20x：20% 保证金止损 ≈ 1% 价格止损；40% 保证金止盈 ≈ 2% 价格止盈。系统只使用 Binance 当前真实杠杆，不再用默认杠杆猜测；止损还会强制留出强平安全缓冲。用户已有安全保护单不会被覆盖；不安全保护单会增加一层 QP 防护。</div></div>
+        </section>
+        <section id="pane-risk" class="tab-pane" style="display:none">
+          <div class="box"><h3>AI 风控</h3><div class="switchline"><span>AI 自动交易</span><input id="aiTrading" type="checkbox" onchange="toggleAI(this)"></div><div class="grid2"><label class="field">AI默认杠杆<input id="lev" type="number" min="1" max="125"><span class="hint">仅用于 AI 开仓/风险计算；手动仓位保护永远读取 Binance 实际杠杆。</span></label><label class="field">单笔账户风险 %<input id="risk" type="number" min="0.1" max="2" step="0.1"></label><label class="field">AI 最大持仓<input id="maxAI" type="number" min="1" max="3"></label><label class="field">AI 最低置信度 %<input id="conf" type="number" min="50" max="95"></label><label class="field">单币冷却 分钟<input id="cooldown" type="number" min="5" max="240"></label><label class="field">AI 日亏损上限 %<input id="dayLoss" type="number" min="0" max="20" step="0.5"><span class="hint">0 = 关闭；规则与 AI 共用此日亏损熔断。</span></label></div><div class="hint">AI 不可以决定数量、杠杆、风险预算、加仓、减仓或关闭保护。数量由本地 RiskManager 根据账户风险与止损距离计算。</div></div>
+        </section>
+        <section id="pane-system" class="tab-pane" style="display:none">
+          <div class="box"><h3>系统诊断</h3><div class="grid2"><div class="metric"><div class="label">版本</div><div id="diagVersion" class="v">V13.3.5</div></div><div class="metric"><div class="label">Binance 环境</div><div id="diagEnv" class="v">—</div></div><div class="metric"><div class="label">API Key</div><div id="diagKey" class="v mono">—</div></div><div class="metric"><div class="label">时间偏差</div><div id="diagOffset" class="v mono">—</div></div><div class="metric"><div class="label">WS</div><div id="diagWs" class="v">—</div></div><div class="metric"><div class="label">最后同步</div><div id="diagSync" class="v mono">—</div></div></div><div class="form-actions"><button class="btn" onclick="loadLogs()">刷新日志</button><button class="btn" onclick="syncNow()">执行同步复核</button></div></div>
+        </section>
+        <div class="form-actions"><button class="btn" onclick="loadSettings()">重新读取</button><button class="btn primary" onclick="saveSettings()">保存设置并连接</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);let selectedSymbol='BTCUSDT',runtimePositions=[],settingsCache=null,priceHistory=[];let stSeenInitialized=false,stLastSeenFlipId='';
+function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+async function api(url,opt={}){const res=await fetch(url,opt);let data={};try{data=await res.json()}catch{}if(!res.ok){const e=new Error(data.error||'请求失败');e.code=data.code;e.status=data.status;throw e}return data}
+function toast(msg,type=''){const el=$('toast');el.textContent=msg;el.className='toast '+type;el.style.display='block';clearTimeout(window.__toast);window.__toast=setTimeout(()=>el.style.display='none',3200)}
+function logMsg(msg,type='info'){
+  const el=$('logs');
+  const text=String(msg??'');
+  const cls=type==='bad'?'bad':type==='warn'?'warn':type==='good'?'g':'info';
+  const now=new Date().toLocaleTimeString('zh-CN',{hour12:false});
+  if(el){
+    const row=document.createElement('div');
+    const time=document.createElement('span'); time.className='time'; time.textContent=now;
+    const body=document.createElement('span'); body.className=cls; body.textContent=text;
+    row.append(time,document.createTextNode(' '),body);
+    el.prepend(row);
+    while(el.children.length>120) el.lastElementChild.remove();
+  }
+  if(type==='bad') console.error('[UI]',text);
+  else if(type==='warn') console.warn('[UI]',text);
+  else console.info('[UI]',text);
+}
+
+function money(n,fd=2){const v=Number(n);return Number.isFinite(v)?v.toLocaleString('en-US',{minimumFractionDigits:fd,maximumFractionDigits:fd}):'—'}
+function fmtTime(ms){return ms?new Date(Number(ms)).toLocaleTimeString('zh-CN',{hour12:false}):'—'}
+function statusHtml(state){const s=String(state||'UNPROTECTED').toUpperCase();const map={PROTECTED:['state-good','● 已保护'],TRAILING:['state-good','◉ 移动保护运行'],PROTECTING:['state-warn','◌ 保护中'],PARTIAL:['state-warn','◐ 部分保护'],UNPROTECTED:['state-warn','○ 未确认保护'],UNKNOWN:['state-warn','⚠ 无法确认'],ERROR:['state-bad','● 保护异常']};const [c,t]=map[s]||['state-warn',s];return `<span class="${c}">${t}</span>`}
+function renderPositions(){const box=$('positions');if(!runtimePositions.length){box.innerHTML='<div style="padding:28px;text-align:center;color:var(--muted)">当前无持仓<br><br>手机在 Binance 开仓并成交后，软件会自动发现并进行保护。</div>';return}box.innerHTML=`<table class="table"><thead><tr><th>合约</th><th>方向</th><th>数量</th><th>杠杆</th><th>开仓</th><th>标记</th><th>SL</th><th>TP</th><th>收益率</th><th>PnL</th><th>强平</th><th>保护</th></tr></thead><tbody>${runtimePositions.map((p,i)=>{const side=String(p.positionSide||'BOTH').toUpperCase();const pnl=Number(p.unrealizedPnl||0);const ret=p.positionReturnPct;const liq=p.liquidationPrice&&p.markPrice?Math.abs(Number(p.markPrice)-Number(p.liquidationPrice))/Number(p.markPrice)*100:null;return `<tr onclick="selectPosition(${i})" style="cursor:pointer"><td><b>${esc(p.symbol)}</b></td><td><span class="pill ${side==='LONG'?'long':side==='SHORT'?'short':''}">${side}</span></td><td class="mono">${Number(p.contracts||0)}</td><td class="mono">${Number(p.leverage||0)>0?Number(p.leverage)+'x':'—'}</td><td class="mono">${money(p.entryPrice,6)}</td><td class="mono">${money(p.markPrice,6)}</td><td class="mono">${p.protectionSL!=null?fPrice(p.protectionSL,p.symbol):'—'}</td><td class="mono">${p.protectionTP!=null?fPrice(p.protectionTP,p.symbol):'—'}</td><td class="mono ${ret!=null&&ret>=0?'g':'r'}">${ret!=null?(ret>=0?'+':'')+Number(ret).toFixed(2)+'%':'—'}</td><td class="mono ${pnl>=0?'g':'r'}">${pnl>=0?'+':''}${money(pnl,4)}</td><td class="mono ${liq!=null&&liq<7?'r':liq!=null&&liq<10?'y':''}">${liq!=null?liq.toFixed(2)+'%':'—'}</td><td>${statusHtml(p.protectionStatus)}</td></tr>`}).join('')}</tbody></table>`}
+function fPrice(v,symbol){const n=Number(v);if(!Number.isFinite(n)||n<=0)return '—';const a=String(n).split('.');const dec=Math.min(8,Math.max(4,(a[1]||'').length));return n.toFixed(dec)}
+
+function clearSelectedPositionView(){selectedSymbol='';$('selectedTitle').dataset.key='';$('selectedTitle').textContent='未选择';$('selSide').textContent='—';$('selQty').textContent='—';$('selLevTop').textContent='—';$('selEntry').textContent='—';$('selMark').textContent='—';$('selPnl').textContent='—';$('selPnl').className='v';$('selReturn').textContent='—';$('selPriceMove').textContent='—';$('selEquity').textContent='—';$('selAfterSL').textContent='—';$('selAfterTP').textContent='—';$('selSL').textContent='—';$('selTP').textContent='—';$('selActualSL').textContent='—';$('selActualTP').textContent='—';$('selProtect').innerHTML=statusHtml('UNKNOWN');$('selLev').textContent='—';$('selMargin').textContent='—';$('selLiq').textContent='—';$('selLiqPct').textContent='—';$('selEntryRisk').textContent='—';$('selDistances').textContent='—';$('selMarginImpact').textContent='—';$('selQtyPnl').textContent='—';$('selCalcMode').textContent='—';$('selRR').textContent='—';$('selBuffer').textContent='—';$('selAlgo').textContent='—';$('selAlgoStatus').textContent='—';$('selTrailingMode').textContent='—';$('selTrailingConfig').textContent='—';$('diagNotice').textContent='当前无持仓，历史诊断已清空。';$('liqBar').style.width='0%';}
+function renderDiagnostics(d,p){
+  if(!d){$('diagNotice').textContent='正在读取 Binance Algo Orders…';return}
+  const f=(v,fd=6)=>v==null||!Number.isFinite(Number(v))?'—':Number(v).toFixed(fd);
+  const state=d.protectionState||'UNKNOWN';
+  $('selSide').textContent=String(d.positionSide||p.positionSide||'BOTH').toUpperCase();
+  $('selSide').className='v '+(String(d.positionSide||'').toUpperCase()==='LONG'?'g':'r');
+  $('selQty').textContent=Number(d.contracts||0).toLocaleString('en-US',{maximumFractionDigits:8});
+  $('selLevTop').textContent=Number(d.leverage||0)>0?Number(d.leverage)+'x':'未读取';
+  $('selLevTop').className='v '+(Number(d.leverage||0)>0?'g':'r');
+  $('selProtect').innerHTML=statusHtml(state)+(d.tpPending?' <span class="hint">· TP排队中，SL已确认，本地Mark Price继续兜底</span>':'');
+  $('selSL').textContent=f(d.theoreticalSL,6);
+  $('selTP').textContent=f(d.theoreticalTP,6);
+  $('selActualSL').textContent=d.actualSL!=null?f(d.actualSL,6)+' ✓':'未确认';
+  $('selActualTP').textContent=d.actualTP!=null?f(d.actualTP,6)+' ✓':(d.tpPending?'排队中（Binance Algo限频）':'未确认');
+  $('selActualSL').className='v mono '+(d.actualSL!=null?(d.slSafe?'g':'r'):'y');
+  $('selActualTP').className='v mono '+(d.actualTP!=null?(d.tpSafe?'g':'r'):(d.tpPending?'y':'y'));
+  const slEntry=d.slEntryDistancePct!=null?d.slEntryDistancePct.toFixed(3)+'%':'—';
+  const tpEntry=d.tpEntryDistancePct!=null?d.tpEntryDistancePct.toFixed(3)+'%':'—';
+  $('selEntryRisk').textContent=p.side==='long'?`−${slEntry} / +${tpEntry}`:`+${slEntry} / −${tpEntry}`;
+  $('selDistances').textContent=(d.slDistancePct!=null?d.slDistancePct.toFixed(3)+'%':'—')+' / '+(d.tpDistancePct!=null?d.tpDistancePct.toFixed(3)+'%':'—');
+  const lev=Number(d.leverage);
+  const slMi=d.slMarginImpactPct!=null?d.slMarginImpactPct.toFixed(2)+'%':'—';
+  const tpMi=d.tpMarginImpactPct!=null?d.tpMarginImpactPct.toFixed(2)+'%':'—';
+  $('selMarginImpact').textContent=lev>0?`−${slMi} / +${tpMi}（${lev}x）`:'未读取 Binance 当前杠杆';
+  $('selMarginImpact').className=lev>0?(d.stopBeyondLiquidation?'r':'g'):'r';
+  $('selReturn').textContent=d.positionReturnPct!=null?(d.positionReturnPct>=0?'+':'')+Number(d.positionReturnPct).toFixed(2)+'%':'—';
+  $('selReturn').className='v '+(d.positionReturnPct!=null&&d.positionReturnPct>=0?'g':'r');
+  $('selPriceMove').textContent=d.priceMovePct!=null?(d.priceMovePct>=0?'+':'')+Number(d.priceMovePct).toFixed(3)+'%':'—';
+  $('selPriceMove').className='v '+(d.priceMovePct!=null&&d.priceMovePct>=0?'g':'r');
+  $('selEquity').textContent=d.accountEquity!=null?money(d.accountEquity,4)+' USDT':'—';
+  $('selSnapshot').textContent=d.snapshotAt?`数据快照：${fmtTime(d.snapshotAt)}${d.snapshotLagMs!=null?` · 数据跨度 ${d.snapshotLagMs}ms`:''}${d.markPriceSource==='MARK_PRICE_WS'?' · Mark WS实时':''}`:'数据快照：—';
+  $('selAfterSL').textContent=d.equityAfterSL!=null?money(d.equityAfterSL,4)+' USDT':'—';
+  $('selAfterSL').className='v '+(d.equityAfterSL!=null?'r':'');
+  $('selAfterTP').textContent=d.equityAfterTP!=null?money(d.equityAfterTP,4)+' USDT':'—';
+  $('selAfterTP').className='v '+(d.equityAfterTP!=null?'g':'');
+  const margin=Number(d.isolatedMargin||p.isolatedMargin||0);
+  const qty=Number(d.contracts||p.contracts||0);
+  const entry=Number(d.entryPrice||p.entryPrice||0);
+  const effSL=Number((d.actualSL??d.theoreticalSL)||0), effTP=Number((d.actualTP??d.theoreticalTP)||0);
+  if(lev>0&&margin>0&&d.slMarginImpactPct!=null&&d.tpMarginImpactPct!=null){
+    const loss=margin*d.slMarginImpactPct/100, profit=margin*d.tpMarginImpactPct/100;
+    $('selMarginImpact').textContent+=` · 保证金≈−${loss.toFixed(3)} / +${profit.toFixed(3)} USDT`;
+  }
+  if(qty>0&&entry>0&&effSL>0&&effTP>0){
+    const stopPnl=(p.side==='long'?(effSL-entry):(entry-effSL))*qty;
+    const tpPnl=(p.side==='long'?(effTP-entry):(entry-effTP))*qty;
+    $('selQtyPnl').textContent=`止损 ≈ ${stopPnl>=0?'+':''}${stopPnl.toFixed(4)} / 止盈 ≈ ${tpPnl>=0?'+':''}${tpPnl.toFixed(4)} USDT`;
+    $('selQtyPnl').className=(stopPnl<0&&tpPnl>0)?'r':'';
+  } else $('selQtyPnl').textContent='—';
+  $('selCalcMode').textContent=d.calculationMode==='MARGIN'?`保证金风险 ${d.stopLossMarginPct??'—'}% / ${d.takeProfitMarginPct??'—'}%`:'价格幅度';
+  $('selCalcMode').className=d.calculationMode==='MARGIN'?'g':'c';
+  $('selLev').textContent=lev>0?`${lev}x · Binance实时读取`:'未读取';
+  $('selLev').className=lev>0?'g':'r';
+  $('selRR').textContent=d.rr!=null?d.rr.toFixed(2)+'R':'—';
+  $('selRR').className=d.rr!=null&&d.rr>=2?'g':'r';
+  $('selBuffer').textContent=d.liqBufferPct!=null?d.liqBufferPct.toFixed(2)+' pp'+(d.stopBeyondLiquidation?' · 已越过':d.liqRisk?' · 偏紧':' · 正常'):'—';
+  $('selBuffer').className=d.stopBeyondLiquidation?'r':(d.liqRisk?'y':'g');
+  $('selAlgo').textContent=`SL:${d.slOrderId??d.slAlgoId??'—'} / TP:${d.tpOrderId??d.tpAlgoId??'—'} / TR:${d.trailingAlgoId??'—'} · ${d.slTransport||'—'}/${d.tpTransport||'—'}`;
+  $('selTrailingMode').textContent=d.trailingModeLabel||((d.trailingActive)?'移动保护运行中':(d.trailingEnabled?(d.trailingActivationReached?'已达到激活条件 · 正在创建':'已开启 · 等待激活'):'已关闭'));
+  $('selTrailingMode').className='v '+(d.trailingActive?'g':(d.trailingActivationReached?'g':d.trailingEnabled?'y':'c'));
+  $('selTrailingConfig').textContent=`${d.trailingActivationPct!=null?Number(d.trailingActivationPct).toFixed(2)+'%':'—'} / ${d.trailingCallbackPct!=null?Number(d.trailingCallbackPct).toFixed(2)+'%':'—'}${d.trailingFavorableMovePct!=null?` · 当前有利移动 ${Number(d.trailingFavorableMovePct).toFixed(2)}%`:''}${d.trailingActivationRemainingPct>0?` · 还差 ${Number(d.trailingActivationRemainingPct).toFixed(2)}%`:''}`;
+  $('selAlgoStatus').textContent=`SL:${d.slAlgoStatus??'—'} · TP:${d.tpAlgoStatus??'—'} · TR:${d.trailingAlgoStatus??'—'}`;
+  let notice=`${d.slSource==='BINANCE_CONFIRMED'?'SL Binance已确认':'SL 仅理论'} · ${d.tpSource==='BINANCE_CONFIRMED'?'TP Binance已确认':'TP 仅理论'}`;
+  notice+=` · 模式 ${d.calculationMode==='MARGIN'?'保证金风险':'价格幅度'}`;
+  if(d.calculationMode==='MARGIN'&&lev>0) notice+=` · 实际杠杆 ${lev}x`;
+  if(d.expectedSL!=null||d.expectedTP!=null) notice+=` · 交易所目标 SL ${f(d.expectedSL,6)} / TP ${f(d.expectedTP,6)}`;
+  if(d.liquidationAdjusted) notice+=' · ⚠ SL 已按强平价自动收紧';
+  if(d.stopBeyondLiquidation) notice+=' · ⚠ 当前实际 SL 已越过安全强平边界';
+  if(d.slAlreadyTriggered) notice+=' · ⚠ SL 目标已穿越，系统会执行保护性处理';
+  if(d.tpAlreadyReached) notice+=' · ⚠ TP 目标已达到，系统会执行保护性处理';
+  if(d.targetError) notice+=` · ⚠ 目标计算失败：${d.targetError}`;
+  if(d.queuedAlgoJobs&&d.queuedAlgoJobs.length){const q=d.queuedAlgoJobs.map(x=>x.label).join('、');notice+=` · ⏳ Algo排队中：${q}`;}
+  if(d.trailingEnabled) notice+=` · 移动保护 ${d.trailingActive?'运行中':'等待激活'}${d.trailingActivationPct!=null?` · 激活 ${Number(d.trailingActivationPct).toFixed(2)}%`:''}${d.trailingCallbackPct!=null?` · 回调 ${Number(d.trailingCallbackPct).toFixed(2)}%`:''}`;
+  if(d.queryError) notice+=` · ⚠ Algo 查询失败：${d.queryError}`;
+  if(d.accountQueryError) notice+=` · ⚠ 账户快照读取失败：${d.accountQueryError}`;
+  if(d.snapshotConsistency==='TIME_GAP') notice+=` · ⚠ 账户/仓位快照间隔 ${d.snapshotLagMs}ms`;
+  if(d.stateMismatch) notice+=` · 状态已按 Binance 实时结果纠正（原本地状态 ${d.localProtectionState}）`;
+  $('diagNotice').textContent=notice;
+}
+async function loadDiagnostics(p){
+  try{
+    const d=await api('/api/positions/diagnostics?symbol='+encodeURIComponent(p.symbol)+'&positionSide='+encodeURIComponent(p.positionSide||'BOTH'));if(!runtimePositions.some(x=>`${String(x.symbol).toUpperCase()}|${String(x.positionSide||'BOTH').toUpperCase()}`===`${String(d.symbol||p.symbol).toUpperCase()}|${String(d.positionSide||p.positionSide||'BOTH').toUpperCase()}`)) { clearSelectedPositionView(); return; }
+    renderDiagnostics(d,d);
+    const k=String(d.symbol||p.symbol).toUpperCase()+'|'+String(d.positionSide||p.positionSide||'BOTH').toUpperCase();
+    const idx=runtimePositions.findIndex(x=>String(x.symbol).toUpperCase()+'|'+String(x.positionSide||'BOTH').toUpperCase()===k);
+    if(idx>=0){
+      runtimePositions[idx]={...runtimePositions[idx],contracts:d.contracts,side:d.side,positionSide:d.positionSide,entryPrice:d.entryPrice,markPrice:d.markPrice,unrealizedPnl:d.unrealizedPnl,leverage:d.leverage||0,liquidationPrice:d.liquidationPrice||0,positionReturnPct:d.positionReturnPct,protectionSL:d.actualSL??d.expectedSL??null,protectionTP:d.actualTP??d.expectedTP??null,protectionStatus:d.protectionState,protectionVerifiedAt:d.checkedAt};
+      renderPositions();
+    }
+  }
+  catch(e){$('diagNotice').textContent='诊断读取失败：'+e.message;$('selProtect').innerHTML=statusHtml('UNKNOWN');$('selActualSL').textContent='查询失败';$('selActualTP').textContent='查询失败';$('selActualSL').className='v mono y';$('selActualTP').className='v mono y'}
+}
+function selectPosition(i){
+  const p=runtimePositions[i];if(!p)return;
+  selectedSymbol=p.symbol;
+  $('selectedTitle').dataset.key=`${String(p.symbol).toUpperCase()}|${String(p.positionSide||'BOTH').toUpperCase()}`;
+  $('selectedTitle').textContent=`${p.symbol} ${p.positionSide}`;
+  $('selSide').textContent=String(p.positionSide||'BOTH').toUpperCase();
+  $('selQty').textContent=Number(p.contracts||0).toLocaleString('en-US',{maximumFractionDigits:8});
+  $('selLevTop').textContent=Number(p.leverage||0)>0?Number(p.leverage)+'x':'读取中…';
+  $('selEntry').textContent=money(p.entryPrice,6);
+  $('selMark').textContent=money(p.markPrice,6);
+  const pnl=Number(p.unrealizedPnl||0);
+  $('selPnl').textContent=(pnl>=0?'+':'')+money(pnl,4);
+  $('selPnl').className='v '+(pnl>=0?'g':'r');
+  $('selReturn').textContent=p.positionReturnPct!=null?(p.positionReturnPct>=0?'+':'')+Number(p.positionReturnPct).toFixed(2)+'%':'读取中…';
+  $('selEquity').textContent='读取中…';
+  $('selAfterSL').textContent='读取中…';
+  $('selAfterTP').textContent='读取中…';
+  $('selSL').textContent='读取中…';$('selTP').textContent='读取中…';
+  $('selActualSL').textContent='读取中…';$('selActualTP').textContent='读取中…';
+  $('selProtect').innerHTML=statusHtml('UNKNOWN');
+  $('selLev').textContent='读取中…';
+  $('selMargin').textContent=money(p.isolatedMargin||0,2);
+  $('selLiq').textContent=p.liquidationPrice?money(p.liquidationPrice,6):'—';
+  const d=p.liquidationPrice&&p.markPrice?Math.abs(Number(p.markPrice)-Number(p.liquidationPrice))/Number(p.markPrice)*100:null;
+  $('selLiqPct').textContent=d!=null?d.toFixed(3)+'%':'—';
+  $('selEntryRisk').textContent='读取中…';$('selDistances').textContent='读取中…';$('selMarginImpact').textContent='读取中…';$('selQtyPnl').textContent='读取中…';$('selCalcMode').textContent='读取中…';$('selRR').textContent='—';$('selBuffer').textContent='读取中…';
+  $('selAlgo').textContent='读取中…';$('selAlgoStatus').textContent='读取中…';
+  $('liqBar').style.width=(d==null?0:Math.max(0,Math.min(100,d/15*100)))+'%';
+  loadMarket(p.symbol);loadDiagnostics(p);
+}
+function stTime(ts){return ts?new Date(Number(ts)).toLocaleTimeString('zh-CN',{hour12:false}):'—'}
+function renderSuperTrend(st){
+  if(!st)return;
+  const c=st.counts||{};
+  $('stUp').textContent=String(c.up??'—');
+  $('stDown').textContent=String(c.down??'—');
+  const recent=st.recentFlips||[];
+  $('stFlipCount').textContent=recent.length?String(recent.length):'0';
+  $('stStatus').textContent=st.status||'—';
+  $('stStatus').className='health-card b';
+  $('stLastScan').textContent=stTime(st.lastSuccessfulAt);
+  $('stNextScan').textContent=st.nextScanAt?stTime(st.nextScanAt):'—';
+  const newest=recent[0];
+  if(!stSeenInitialized){stSeenInitialized=true;stLastSeenFlipId=newest?.id||'';}
+  else if(newest?.id && newest.id!==stLastSeenFlipId){stLastSeenFlipId=newest.id;toast(`${newest.symbol} SuperTrend ${newest.direction==='UP'?'↑ 刚转多头':'↓ 刚转空头'}` ,newest.direction==='UP'?'good':'bad');logMsg(`SuperTrend 转换提示：${newest.symbol} ${newest.direction==='UP'?'刚转多头':'刚转空头'}` ,newest.direction==='UP'?'good':'bad');}
+  const alerts=recent.slice(0,8).map(x=>`<div class="trend-alert"><span><b>${esc(x.symbol)}</b><span class="vol"> · ${x.groups?.map(g=>g.group==='GAINER'?'涨':'跌').join('/')||''}</span></span><span class="${x.direction==='UP'?'g':'r'}"><span class="trend-arrow">${x.direction==='UP'?'↑':'↓'}</span> ${x.direction==='UP'?'刚转多':'刚转空'} · ${stTime(x.detectedAt)}</span></div>`).join('');
+  $('stAlerts').innerHTML=alerts||'<div style="padding:18px;text-align:center;color:var(--muted)">暂无新的 SuperTrend 转换</div>';
+}
+async function loadMarket(symbol){selectedSymbol=symbol;$('chartTitle').textContent='行情 · '+symbol;$('chartStatus').textContent='加载中';try{const d=await api('/api/market/'+encodeURIComponent(symbol));$('chartStatus').textContent='实时';$('chartPrice').textContent=money(d.price,6);priceHistory.push(Number(d.markPrice||d.price||0));renderPriceLine();$('chartChange').textContent='24H '+(d.changePct>=0?'+':'')+Number(d.changePct).toFixed(2)+'%';$('chartChange').className=d.changePct>=0?'g':'r';$('hiLo').textContent=money(d.high,6)+' / '+money(d.low,6);$('volume').textContent=money(d.volume/1000000,2)+'M USDT';$('markPrice').textContent=money(d.markPrice,6);$('funding').textContent=(d.fundingRate>=0?'+':'')+(Number(d.fundingRate)*100).toFixed(4)+'%';}catch(e){$('chartStatus').textContent='失败';logMsg('行情：'+e.message,'bad')}}
+function renderPriceLine(){
+  const svgWidth=900,svgHeight=235,pad=14;
+  const points=priceHistory.slice(-40);
+  if(points.length<2)return;
+  const min=Math.min(...points),max=Math.max(...points),span=max-min||Math.max(points[0]*0.001,1);
+  const coords=points.map((v,i)=>{const x=i*(svgWidth/(points.length-1));const y=pad+(1-(v-min)/span)*(svgHeight-pad*2);return `${x.toFixed(1)},${y.toFixed(1)}`}).join(' ');
+  $('priceLine').setAttribute('points',coords);
+}
+function selectSymbol(s){priceHistory=[];loadMarket(s);logMsg('已切换行情：'+s,'info')}
+function renderRuleTrading(x){const sum=x.lastSummary||{},rows=Array.isArray(sum.decisions)?sum.decisions:[],topN=Number(x.topN||20);$('ruleTradingStatus').textContent=x.enabled?(x.running?'运行中':'已停止'):'关闭';$('ruleCandidates').textContent=Number(sum.candidates||0);$('ruleEligible').textContent=Number(sum.eligible||0);$('ruleOrdersPlaced').textContent=Number(sum.ordersPlaced||0);$('rulePending').textContent=Number(sum.pendingOrders||0);$('ruleScanInfo').textContent=`${fmtTime(sum.updatedAt||x.lastScanAt)} · Top${topN}×2 · ${Number(sum.candidates||0)}候选`;$('ruleScanMs').textContent=sum.durationMs!=null?`${Number(sum.durationMs)}ms`:'—';const rc=sum.reasonCounts||{},topReasons=Object.entries(rc).sort((a,b)=>b[1]-a[1]).slice(0,8);$('ruleReasons').innerHTML=topReasons.length?topReasons.map(([k,v])=>`<span class="reason-chip bad">${esc(k)} × ${Number(v)}</span>`).join(''):'<span class="reason-chip">无阻断</span>';$('ruleReason').textContent=sum.skipped?`风控拦截：${sum.skipped}`:(topReasons.length?topReasons.map(([k,v])=>`${k} × ${v}`).join(' · '):'本轮无阻断');const readyCount=rows.filter(d=>d?.status==='READY'||d?.status==='ORDER_PLACED'||d?.eligible).length;const stage=(id,state)=>{const e=$(id);if(e)e.className='flow-step '+state};stage('flowRank',sum.candidates?'pass':'wait');stage('flowTrend',rows.length?'pass':'wait');stage('flowRsi',Object.keys(rc).some(k=>k.startsWith('RSI_'))?'block':readyCount?'pass':'wait');stage('flowVol',Object.keys(rc).includes('VOLUME_TOO_LOW')?'block':readyCount?'pass':'wait');stage('flowEntry',Object.keys(rc).some(k=>k.startsWith('ENTRY_'))?'block':readyCount?'pass':'wait');stage('flowRisk',sum.ordersPlaced?'pass':sum.eligible?'wait':'block');const d0=rows.find(d=>d.status==='READY'||d.status==='ORDER_PLACED')||rows[0];if(d0){$('ruleSt5').innerHTML=`${esc(d0.trend5m||'—')} · ${esc(d0.action||'—')}`;$('ruleBb').innerHTML=Number.isFinite(Number(d0.rsi))?`${Number(d0.rsi).toFixed(1)} / ${Number(d0.rsiThreshold||0).toFixed(1)}`:'—';$('ruleMacd').innerHTML=Number.isFinite(Number(d0.volumeRatio))?`${Number(d0.volumeRatio).toFixed(2)}×`:'—'}else{$('ruleSt5').textContent='等待';$('ruleBb').textContent='等待';$('ruleMacd').textContent='等待'}const pending=(x.pendingOrders||[]).slice(0,4);$('rulePendingList').textContent=pending.length?pending.map(o=>`${o.symbol} ${o.positionSide} · ${money(o.price,6)}`).join(' | '):'暂无';$('ruleLastSignal').textContent=x.lastSignal?`${x.lastSignal.symbol} ${x.lastSignal.action} · ${money(x.lastSignal.entry,6)}`:'暂无';$('ruleSummary').innerHTML=`<span class="rule-pill">候选池 <strong>Top${topN} × 2</strong></span><span class="rule-pill">RSI <strong>${Number(x.activeParams?.rsiLongTrigger??40).toFixed(0)}/${Number(x.activeParams?.rsiShortTrigger??60).toFixed(0)} · 深度 ${Number(x.activeParams?.rsiLongDepth??35).toFixed(0)}/${Number(x.activeParams?.rsiShortDepth??65).toFixed(0)}</strong></span><span class="rule-pill">Volume <strong>≥${Number(x.activeParams?.volumeMinRatio??0.9).toFixed(1)}×</strong></span><span class="rule-pill">入场 <strong>结构 LIMIT</strong></span>`;const rs=x.stats||{},wait=Number(rs.averageFillWaitSec||0);$('ruleStats').innerHTML=`<span class="rule-pill">今日信号 <strong>${Number(rs.signalGenerated||0)}</strong></span><span class="rule-pill">挂出 <strong>${Number(rs.ordersPlaced||0)}</strong></span><span class="rule-pill">成交 <strong>${Number(rs.filledOrders||0)}</strong></span><span class="rule-pill">TTL撤单 <strong>${Number(rs.ttlCanceled||0)}</strong></span><span class="rule-pill">成交率 <strong>${Number(rs.orderFillRatePct||0).toFixed(1)}%</strong></span><span class="rule-pill">平均等待 <strong>${wait.toFixed(1)}s</strong></span>`;$('ruleDecisionList').innerHTML=rows.length?rows.map(d=>{const status=d.status==='ORDER_PLACED'?'已下单':d.eligible?'可下单':'阻断',cls=d.eligible||d.status==='ORDER_PLACED'?'ready':'',reasons=Array.isArray(d.reasons)&&d.reasons.length?d.reasons:(d.reason?[d.reason]:[]),detail=d.reason==='RSI_DEPTH_NOT_REACHED'?`深度 ${Number(d.rsiDepthExtreme||0).toFixed(1)} / ${d.action==='LONG'?'<=':'>='}${Number(d.rsiDepthThreshold||0).toFixed(1)}`:d.reason==='RSI_RECOVERY_NOT_CONFIRMED'?`回升 ${Number(d.rsi||0).toFixed(1)} / ${Number(d.rsiThreshold||0).toFixed(1)}`:d.reason==='RSI_SLOPE_NOT_CONFIRMED'?`斜率 ${Number(d.rsiPrevious||0).toFixed(1)}→${Number(d.rsi||0).toFixed(1)}`:d.reason==='VOLUME_TOO_LOW'?`量 ${Number(d.volumeRatio||0).toFixed(2)}× < ${Number(d.volumeMinRatio||0).toFixed(2)}×`:d.reason||'条件检查完成';return `<div class="rule-decision v134 ${cls}"><span class="sym">#${Number(d.rank||0)} ${esc(d.symbol)} <span class="${d.action==='LONG'?'g':'r'}">${d.action==='LONG'?'LONG':'SHORT'}</span></span><span class="${cls?'rule-pass':'rule-block'}">${status}</span><span class="why" title="${esc(reasons.join(' · '))}">${esc(detail)}${reasons.length>1?` <span class="mini">+${reasons.length-1}</span>`:''}</span></div>`}).join(''):'<div style="padding:18px;text-align:center;color:var(--muted);grid-column:1/-1">等待下一轮扫描</div>';const exit=x.lastExit;$('ruleLastExit').textContent=exit?`指标平仓：${exit.symbol} ${exit.positionSide} · ${exit.reason} · ${fmtTime(exit.at)}`:'指标平仓：暂无'}
+async function refresh(){try{const s=await api('/api/status');runtimePositions=s.positions||[];const ready=s.status==='READY'||s.status==='DEGRADED';const degraded=s.status==='DEGRADED';$('topBinance').innerHTML=`<span class="status-dot ${ready?'':'warn'}"></span>币安：${ready?(degraded?'已连接·降级':'已连接'):s.status==='CONFIG_REQUIRED'?'未配置':'异常'}`;$('topProtect').innerHTML=`<span class="status-dot ${s.config.autoProtection?'':'off'}"></span>保护：${s.config.autoProtection?'开启':'关闭'}`;$('topAI').innerHTML=`<span class="status-dot ${s.config.aiTrading?'warn':'off'}"></span>AI：${s.config.aiTrading?'开启':'关闭'}`;$('sideBinance').innerHTML=`<span class="status-dot ${ready?'':'warn'}"></span>${ready?'已连接':s.status}`;$('sideProtect').innerHTML=`<span class="status-dot ${s.config.autoProtection?'':'off'}"></span>${s.config.autoProtection?'开启':'关闭'}`;$('sideAI').innerHTML=`<span class="status-dot ${s.config.aiTrading?'warn':'off'}"></span>${s.config.aiTrading?'开启':'关闭'}`;$('sideMode').textContent=s.hedgeMode==null?'—':s.hedgeMode?'Hedge':'One-way';$('equity').textContent=money(s.equity,2)+' USDT';$('available').textContent=ready?money(s.availableBalance,2)+' USDT':'—';const d=s.daily;$('dailyPnl').textContent=d?(d.netPnl>=0?'+':'')+money(d.netPnl,2):'—';$('dailyPnl').className='value '+(d&&d.netPnl>=0?'g':'r');$('dailyRisk').textContent=d?Number(d.lossPct).toFixed(2)+'%':'—';const riskLimit=Number(s.config.risk.dailyLossLimitPct||0);$('dailyRisk').className='value '+(!d||d.lossPct==null?'y':riskLimit>0&&d.lossPct>=riskLimit?'r':riskLimit>0&&d.lossPct>=riskLimit*0.8?'y':'g');$('posCount').textContent=runtimePositions.length;const healthy=runtimePositions.filter(p=>['PROTECTED','TRAILING'].includes(p.protectionStatus)).length;const protecting=runtimePositions.filter(p=>p.protectionStatus==='PROTECTING').length;const errs=runtimePositions.filter(p=>['ERROR','PARTIAL','UNKNOWN','UNPROTECTED'].includes(p.protectionStatus)).length;$('protectionCount').textContent=`已保护 ${healthy} · 异常 ${errs}`;$('healthyCount').textContent=healthy;$('protectingCount').textContent=protecting;$('errorCount').textContent=errs;$('transport').textContent=s.wsConnected?'WS + REST':'REST SAFE';$('wsState').textContent=s.wsConnected?'正常':'降级';$('lastSync').textContent='最后同步 '+fmtTime(s.lastSyncAt);const dailyLimit=Number(s.config.risk.dailyLossLimitPct||0);$('riskText').textContent=(d?Number(d.lossPct).toFixed(2):'—')+'% / '+(dailyLimit>0?dailyLimit.toFixed(1)+'%':'关闭');$('riskBar').style.width=dailyLimit>0?Math.max(0,Math.min(100,Number(d?.lossPct||0)/dailyLimit*100))+'%':'0%';$('lossStreak').textContent=(s.daily?.lossStreak||0)+' 次';const aiPos=runtimePositions.filter(p=>p.positionSource==='AI').length;$('aiPositions').textContent=aiPos+' / '+s.config.risk.maxAIPositions;$('offsetValue').textContent=(s.timeOffsetMs>=0?'+':'')+Number(s.timeOffsetMs||0).toFixed(0)+' ms';$('sideOffset').textContent=(s.timeOffsetMs>=0?'+':'')+Number(s.timeOffsetMs||0).toFixed(0)+' ms';$('diagVersion').textContent=s.version||'13.3.5';$('diagEnv').textContent=s.config.binanceSandbox?'测试网':'正式盘';$('diagKey').textContent=s.credentials.binanceApiKey||'未配置';$('diagOffset').textContent=(s.timeOffsetMs>=0?'+':'')+Number(s.timeOffsetMs||0).toFixed(0)+' ms';$('diagWs').textContent=s.wsConnected?'正常':'降级';$('diagSync').textContent=fmtTime(s.lastSyncAt);$('diagVersion').title=`Risk权益数据源：${s.daily?.equitySource||'—'} · 年龄 ${Number(s.daily?.equityAgeMs||0)}ms`;renderPositions();if(s.supertrend){renderSuperTrend(s.supertrend);}if(s.ruleTrading){renderRuleTrading(s.ruleTrading);}if(s.lastAI)renderAI(s.lastAI);const selectedKey=($('selectedTitle').dataset.key||'');const stillExists=runtimePositions.some(p=>`${String(p.symbol).toUpperCase()}|${String(p.positionSide||'BOTH').toUpperCase()}`===selectedKey);if(!runtimePositions.length){clearSelectedPositionView()}else if(!stillExists){selectPosition(0)}if(s.lastError) $('footerStatus').textContent='异常：'+s.lastError;else $('footerStatus').textContent='V13 轻量回踩 · 低延迟保护 · '+s.status}catch(e){logMsg(e.message,'bad')}}
+async function scanRuleTrading(){try{logMsg('规则自动交易开始手动扫描','warn');const r=await api('/api/rule-trading/scan',{method:'POST'});renderRuleTrading(r);logMsg(`规则扫描完成：候选 ${Number(r.candidates||0)} · 挂单 ${Number(r.ordersPlaced||0)} · 待挂 ${Number(r.pendingOrders||0)}`,(Number(r.ordersPlaced||0)>0)?'good':'info');await refresh()}catch(e){logMsg('规则扫描失败：'+e.message,'bad');toast('规则扫描失败：'+e.message,'bad')}}
+async function syncNow(){try{logMsg('开始同步与保护复核','warn');const r=await api('/api/sync',{method:'POST'});logMsg(`同步完成：${r.positions?.length||0} 个持仓`,'good');await refresh()}catch(e){logMsg('同步失败：'+e.message,'bad');toast(e.message,'bad')}}
+async function analyzeAI(){try{logMsg('AI开始分析候选池','warn');const r=await api('/api/ai/analyze',{method:'POST'});renderAI(r);logMsg('AI分析完成','good')}catch(e){logMsg('AI分析失败：'+e.message,'bad');toast(e.message,'bad')}}
+async function executeAI(){if(!confirm('确认执行一次 AI 自动交易？执行前仍会经过本地 RiskManager。'))return;try{const r=await api('/api/ai/trade',{method:'POST'});renderAI(r);logMsg(r.executed?'AI开仓并保护完成':'AI没有执行开仓：'+(r.check?.reason||'未知原因'),r.executed?'good':'warn')}catch(e){logMsg('AI执行失败：'+e.message,'bad');toast(e.message,'bad')}}
+async function stopAI(){try{await api('/api/emergency-stop-ai',{method:'POST'});logMsg('AI自动交易已停止；已有仓位保护继续运行','warn');await refresh()}catch(e){logMsg('停止AI失败：'+e.message,'bad')}}
+async function flattenAll(){if(!confirm('确认全部平仓？该操作不可撤销。'))return;try{const r=await api('/api/emergency-close',{method:'POST'});logMsg(r.ok?'全部平仓已复核完成':'全部平仓未完全成功，请检查剩余仓位',r.ok?'good':'bad');await refresh()}catch(e){logMsg('全部平仓失败：'+e.message,'bad')}}
+function openSettings(tab='binance'){$('settingsOverlay').style.display='flex';loadSettings().then(()=>showTab(tab)).catch(()=>showTab(tab))}
+function closeSettings(e){if(!e||e.target===$('settingsOverlay'))$('settingsOverlay').style.display='none'}
+function showTab(name){document.querySelectorAll('.tab-pane').forEach(p=>p.style.display='none');document.querySelectorAll('.settings-nav button').forEach(b=>b.classList.remove('active'));$('pane-'+name).style.display='block';$('tab-'+name).classList.add('active')}
+function renderProviderList(cfg,masked){
+  const providers=cfg?.ai?.providers||[];
+  const keys=masked?.aiApiKeysMasked||{};
+  $('providerList').innerHTML=providers.map((p,i)=>`
+    <div class="box" style="margin:8px 0;padding:10px">
+      <div class="switchline"><span><b>${esc(p.label||p.id)}</b><span class="hint"> · ${esc(p.id)} · ${p.requiresKey===false?'免Key':'需Key'}</span></span><input type="checkbox" data-p-enabled="${i}" ${p.enabled!==false?'checked':''}></div>
+      <div class="grid2">
+        <label class="field">Base URL<input data-p-url="${i}" value="${esc(p.baseUrl||'')}" placeholder="https://..."></label>
+        <label class="field">模型<input data-p-model="${i}" value="${esc(p.model||'')}" placeholder="模型名称"></label>
+        <label class="field" style="grid-column:1/-1">API Key<input data-p-key="${i}" type="password" placeholder="${keys[p.id]?'已保存 '+keys[p.id]:'输入该供应商 API Key（留空保持原值）'}"></label>
+      </div>
+    </div>`).join('')||'<div class="hint">暂无供应商。</div>';
+}
+function enableFreeAI(){
+  const ps=settingsCache?.config?.ai?.providers||[];
+  ps.forEach(p=>{if(p.id==='openrouter'||p.id==='geminiFree')p.enabled=true;});
+  settingsCache.config.ai.freeFirst=true;
+  renderProviderList({...settingsCache.config,ai:{...settingsCache.config.ai,providers:ps}},settingsCache.credentials);
+  toast('已启用 OpenRouter + Gemini 免费层；填写对应免费 API Key 后保存并测试','good');
+}
+function enableLocalAI(){
+  const ps=settingsCache?.config?.ai?.providers||[];
+  const p=ps.find(x=>x.id==='ollama');
+  if(p){p.enabled=true;if(!p.model)p.model='qwen3:8b';}
+  settingsCache.config.ai.freeFirst=true;
+  renderProviderList({...settingsCache.config,ai:{...settingsCache.config.ai,providers:ps}},settingsCache.credentials);
+  toast('已启用 Ollama 本地免 Key；请确认 Ollama 已运行并已安装 qwen3:8b','good');
+}
+function collectProviders(){
+  return (settingsCache?.config?.ai?.providers||[]).map((p,i)=>({
+    ...p,
+    enabled:!!document.querySelector(`[data-p-enabled="${i}"]`)?.checked,
+    baseUrl:document.querySelector(`[data-p-url="${i}"]`)?.value.trim()||'',
+    model:document.querySelector(`[data-p-model="${i}"]`)?.value.trim()||''
+  }));
+}
+function collectProviderKeys(){
+  const out={};
+  (settingsCache?.config?.ai?.providers||[]).forEach((p,i)=>{
+    const v=document.querySelector(`[data-p-key="${i}"]`)?.value.trim();
+    if(v) out[p.id]=v;
+  });
+  return out;
+}
+async function loadSettings(){
+  try{
+    const d=await api('/api/settings');settingsCache=d;
+    $('autoProtection').checked=!!d.config.autoProtection;$('aiTrading').checked=!!d.config.aiTrading;
+    $('hedgeMode').value=String(!!d.config.hedgeModeExpected);$('sandbox').value=String(!!d.config.binanceSandbox);
+    $('aiFailover').checked=d.config.ai?.autoFailover!==false;$('aiFreeFirst').checked=!!d.config.ai?.freeFirst;
+    renderProviderList(d.config,d.credentials);
+    $('protectMode').value=d.config.protection.calculationMode||'MARGIN';$('priceProtect').value=String(!!d.config.protection.priceProtect);$('fastProtect').value=String(d.config.protection.fastFixedProtection!==false);$('liqBuffer').value=d.config.protection.liquidationBufferPp??0.5;$('slMargin').value=d.config.protection.stopLossMarginPct??20;$('tpMargin').value=d.config.protection.takeProfitMarginPct??40;$('sl').value=d.config.protection.stopLossPct;$('tp').value=d.config.protection.takeProfitPct;
+    $('trailingEnabled').checked=d.config.protection.trailingEnabled!==false;$('trAct').value=d.config.protection.trailingActivationPct;$('trCb').value=d.config.protection.trailingCallbackPct;
+    $('lev').value=d.config.risk.defaultLeverage;$('risk').value=d.config.risk.riskPerTradePct;
+    $('ruleEnabled').checked=!!d.config.ruleTrading?.enabled;$('ruleTopN').value=d.config.ruleTrading?.topN??20;$('ruleLev').value=d.config.ruleTrading?.leverage??10;$('ruleRisk').value=d.config.ruleTrading?.riskPerTradePct??0.5;$('ruleMaxPos').value=d.config.ruleTrading?.maxPositions??1;$('ruleMaxPending').value=d.config.ruleTrading?.maxPendingOrders??2;$('ruleTtl').value=d.config.ruleTrading?.orderTtlMinutes??5;$('ruleCooldown').value=Math.max(10,Number(d.config.ruleTrading?.cooldownMinutes??10));$('ruleStateLookback').value=d.config.ruleTrading?.marketStateLookbackBars??6;$('ruleStateFlips').value=d.config.ruleTrading?.marketStateMaxFlipCount??2;$('ruleStateRange').value=d.config.ruleTrading?.marketStateMinRangeAtr??1.0;$('ruleStateEff').value=d.config.ruleTrading?.marketStateMinEfficiency??0.22;$('ruleRsiPeriod').value=d.config.ruleTrading?.rsiPeriod??14;$('ruleRsiLong').value=d.config.ruleTrading?.rsiLongTrigger??40;$('ruleRsiShort').value=d.config.ruleTrading?.rsiShortTrigger??60;$('ruleRsiLookback').value=d.config.ruleTrading?.rsiLookbackBars??2;$('ruleRsiLongDepth').value=d.config.ruleTrading?.rsiLongDepth??35;$('ruleRsiShortDepth').value=d.config.ruleTrading?.rsiShortDepth??65;$('ruleRsiDepthLookback').value=d.config.ruleTrading?.rsiDepthLookbackBars??6;$('ruleVolPeriod').value=d.config.ruleTrading?.volumePeriod??20;$('ruleVolMin').value=d.config.ruleTrading?.volumeMinRatio??0.9;$('ruleVolStrong').value=d.config.ruleTrading?.volumeStrongRatio??1.2;$('ruleEntryLookback').value=d.config.ruleTrading?.entryLookbackBars??4;$('ruleEntryOffset').value=d.config.ruleTrading?.entryOffsetAtr??0.15;$('ruleEntryRetrace').value=d.config.ruleTrading?.entryRetraceRatio??0.38;$('ruleEntryAtr').value=d.config.ruleTrading?.maxEntryDistanceAtr??1.5;$('ruleFlipBars').value=d.config.ruleTrading?.stFlipCooldownBars??1;$('ruleMinSL').value=d.config.ruleTrading?.minRuleSLPct??0.4;$('ruleMaxSL').value=d.config.ruleTrading?.maxRuleSLPct??2.5;$('ruleRR').value=d.config.ruleTrading?.ruleTakeProfitRR??2;$('ruleExitRsiLong').value=d.config.ruleTrading?.exitRsiLong??60;$('ruleExitRsiShort').value=d.config.ruleTrading?.exitRsiShort??40;$('ruleLossExitBars').value=d.config.ruleTrading?.lossExitConfirmBars??2;$('ruleExitIndicator').checked=d.config.ruleTrading?.exitOnIndicatorReverse!==false;
+    $('maxAI').value=d.config.risk.maxAIPositions;$('conf').value=d.config.risk.minAIConfidence;
+    $('cooldown').value=d.config.risk.symbolCooldownMinutes;$('dayLoss').value=d.config.risk.dailyLossLimitPct;
+    $('binanceKey').value='';$('binanceSecret').value='';
+    $('binanceTestResult').style.display='none';$('aiTestResult').style.display='none';
+    logMsg('设置已读取','good');
+  }catch(e){logMsg('读取设置失败：'+e.message,'bad')}
+}
+async function saveSettings(){
+  const body={
+    binance:{apiKey:$('binanceKey').value.trim(),apiSecret:$('binanceSecret').value.trim()},
+    ai:{providers:collectProviders(),apiKeys:collectProviderKeys(),autoFailover:$('aiFailover').checked,freeFirst:$('aiFreeFirst').checked},
+    hedgeModeExpected:$('hedgeMode').value==='true',binanceSandbox:$('sandbox').value==='true',
+    autoProtection:$('autoProtection').checked,aiTrading:$('aiTrading').checked,
+    protection:{calculationMode:$('protectMode').value,fastFixedProtection:$('fastProtect').value==='true',priceProtect:$('priceProtect').value==='true',liquidationBufferPp:Number($('liqBuffer').value),stopLossMarginPct:Number($('slMargin').value),takeProfitMarginPct:Number($('tpMargin').value),stopLossPct:Number($('sl').value),takeProfitPct:Number($('tp').value),trailingEnabled:$('trailingEnabled').checked,trailingActivationPct:Number($('trAct').value),trailingCallbackPct:Number($('trCb').value)},
+    risk:{defaultLeverage:Number($('lev').value),riskPerTradePct:Number($('risk').value),maxAIPositions:Number($('maxAI').value),minAIConfidence:Number($('conf').value),symbolCooldownMinutes:Number($('cooldown').value),dailyLossLimitPct:Number($('dayLoss').value)},
+    ruleTrading:{enabled:$('ruleEnabled').checked,topN:Number($('ruleTopN').value),leverage:Number($('ruleLev').value),riskPerTradePct:Number($('ruleRisk').value),maxPositions:Number($('ruleMaxPos').value),maxPendingOrders:Number($('ruleMaxPending').value),orderTtlMinutes:Number($('ruleTtl').value),cooldownMinutes:Number($('ruleCooldown').value),rsiPeriod:Number($('ruleRsiPeriod').value),rsiLongTrigger:Number($('ruleRsiLong').value),rsiShortTrigger:Number($('ruleRsiShort').value),rsiLookbackBars:Number($('ruleRsiLookback').value),rsiLongDepth:Number($('ruleRsiLongDepth').value),rsiShortDepth:Number($('ruleRsiShortDepth').value),rsiDepthLookbackBars:Number($('ruleRsiDepthLookback').value),volumePeriod:Number($('ruleVolPeriod').value),volumeMinRatio:Number($('ruleVolMin').value),volumeStrongRatio:Number($('ruleVolStrong').value),entryLookbackBars:Number($('ruleEntryLookback').value),entryOffsetAtr:Number($('ruleEntryOffset').value),entryRetraceRatio:Number($('ruleEntryRetrace').value),marketStateLookbackBars:Number($('ruleStateLookback').value),marketStateMaxFlipCount:Number($('ruleStateFlips').value),marketStateMinRangeAtr:Number($('ruleStateRange').value),marketStateMinEfficiency:Number($('ruleStateEff').value),maxEntryDistanceAtr:Number($('ruleEntryAtr').value),stFlipCooldownBars:Number($('ruleFlipBars').value),minRuleSLPct:Number($('ruleMinSL').value),maxRuleSLPct:Number($('ruleMaxSL').value),ruleTakeProfitRR:Number($('ruleRR').value),exitRsiLong:Number($('ruleExitRsiLong').value),exitRsiShort:Number($('ruleExitRsiShort').value),lossExitConfirmBars:Number($('ruleLossExitBars').value),exitOnIndicatorReverse:$('ruleExitIndicator').checked}
+  };
+  try{
+    const r=await api('/api/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    settingsCache={config:r.config,credentials:r.credentials};renderProviderList(r.config,r.credentials);
+    logMsg('设置已保存','good');toast('设置保存成功','good');await refresh();
+  }catch(e){logMsg('保存设置失败：'+e.message,'bad');toast(e.message,'bad');throw e}
+}
+async function testBinance(){const key=$('binanceKey').value.trim(),secret=$('binanceSecret').value.trim();if(!key||!secret){toast('请先输入 Binance API Key 和 Secret','warn');return}try{logMsg('测试 Binance：直接使用当前输入凭据','warn');const r=await api('/api/binance/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({binance:{apiKey:key,apiSecret:secret}})});$('binanceTestResult').style.display='block';$('binanceTestResult').className='test-result good';$('binanceTestResult').innerHTML=`连接成功<br>环境：${esc(r.environment)}<br>API Key：${esc(r.apiKeyMasked)} · 长度 ${r.apiKeyLength}<br>服务器时间偏差：${Number(r.serverTimeOffsetMs).toFixed(0)} ms<br>账户接口：✓ · 持仓模式：✓ · ExchangeInfo：✓<br>Hedge Mode：${r.hedgeMode?'是':'否'} · 交易对 ${r.symbolCount} 个`;logMsg(`Binance连接成功 · ${r.apiKeyMasked} · Hedge=${r.hedgeMode?'是':'否'} · Offset=${Number(r.serverTimeOffsetMs).toFixed(0)}ms`,'good');await refresh()}catch(e){$('binanceTestResult').style.display='block';$('binanceTestResult').className='test-result bad';$('binanceTestResult').textContent=`连接失败：${e.message}${e.code?` · ${e.code}`:''}${e.status?` · HTTP ${e.status}`:''}`;logMsg('Binance测试失败：'+e.message,'bad')}}
+async function testAI(){try{await saveSettings();const r=await api('/api/ai/test',{method:'POST'});$('aiTestResult').style.display='block';$('aiTestResult').className='test-result good';$('aiTestResult').textContent='AI接口测试成功';logMsg('AI接口测试成功','good')}catch(e){$('aiTestResult').style.display='block';$('aiTestResult').className='test-result bad';$('aiTestResult').textContent='AI接口测试失败：'+e.message;logMsg('AI接口测试失败：'+e.message,'bad')}}
+async function toggleRuleAuto(el){
+  const enabled=!!el.checked;
+  try{
+    const r=await api('/api/settings/rule-trading',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled})});
+    logMsg(enabled?'规则自动交易已开启':'规则自动交易已停止',enabled?'good':'warn');
+    renderRuleTrading(r.ruleTrading||r);
+    await refresh();
+  }catch(e){
+    el.checked=!enabled;
+    logMsg('规则自动交易开关失败：'+e.message,'bad');
+    toast('规则自动交易开关失败：'+e.message,'bad');
+  }
+}
+async function toggleProtection(el){if(!el.checked&&!confirm('关闭自动保护存在裸仓风险，确定关闭？')){el.checked=true;return}try{await api('/api/settings/auto-protection',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:el.checked})});logMsg(el.checked?'自动保护已开启':'自动保护已关闭',el.checked?'good':'warn');await refresh()}catch(e){el.checked=!el.checked;logMsg(e.message,'bad')}}
+async function toggleAI(el){try{await api('/api/settings/ai-trading',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:el.checked})});logMsg(el.checked?'AI实盘已开启':'AI实盘已关闭',el.checked?'warn':'good');await refresh()}catch(e){el.checked=!el.checked;logMsg(e.message,'bad')}}
+async function loadLogs(){try{const level=$('logLevel')?.value||'',q=$('logQuery')?.value||'',d=await api('/api/logs?'+new URLSearchParams({level,q,limit:'1500'}).toString());$('logs').innerHTML='';(d.lines||[]).forEach(line=>{let obj;try{obj=JSON.parse(line)}catch{}if(obj){const type=obj.level==='ERROR'?'bad':obj.level==='WARN'?'warn':'info',detail=obj.meta&&Object.keys(obj.meta).length?' · '+JSON.stringify(obj.meta):'';$('logs').insertAdjacentHTML('beforeend',`<div><span class="time">${fmtTime(obj.time?Date.parse(obj.time):0)}</span> <span class="${type}">[${esc(obj.level)}] ${esc(obj.message)}${esc(detail)}</span></div>`)}else $('logs').insertAdjacentHTML('beforeend',`<div class="info">${esc(line)}</div>`)});if($('logCount'))$('logCount').textContent=`${Number(d.total||0)}条`}catch(e){logMsg('日志读取失败：'+e.message,'bad')}}
+async function clearServerLogs(){if(!confirm('确认清空服务器日志文件及5份轮转备份？'))return;try{await api('/api/logs',{method:'DELETE'});$('logs').innerHTML='';if($('logCount'))$('logCount').textContent='0条';toast('服务器日志文件已清空','good')}catch(e){toast('清空日志失败：'+e.message,'bad')}}
+async function exportLogs(){try{const level=$('logLevel')?.value||'',q=$('logQuery')?.value||'',d=await api('/api/logs?'+new URLSearchParams({level,q,limit:'5000'}).toString()),blob=new Blob([(d.lines||[]).join('\n')],{type:'text/plain;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='binance-protection-assistant-log.txt';a.click();URL.revokeObjectURL(a.href)}catch(e){toast('导出日志失败','bad')}}
+function clearLogView(){$('logs').innerHTML='';if($('logCount'))$('logCount').textContent='0条'}
+function focusSection(id,btn){document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');$(id).scrollIntoView({behavior:'smooth',block:'start'})}
+setInterval(()=>{$('clock').textContent=new Date().toLocaleString('zh-CN',{hour12:false});$('sideClock').textContent=new Date().toLocaleString('zh-CN',{hour12:false})},1000);
+setInterval(()=>{const key=$('selectedTitle').dataset.key||'';const p=runtimePositions.find(x=>`${String(x.symbol).toUpperCase()}|${String(x.positionSide||'BOTH').toUpperCase()}`===key);if(p)loadDiagnostics(p);else if(!runtimePositions.length)clearSelectedPositionView()},3000);
+refresh();loadLogs();setInterval(refresh,1000);setInterval(loadLogs,10000);loadMarket('BTCUSDT');
+</script>
+</body>
+</html>

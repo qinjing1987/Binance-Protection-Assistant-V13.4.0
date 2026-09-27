@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "启动币安合约保护助手 V11.0",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/electron/dist/electron.exe",
+      "windows": { "runtimeExecutable": "${workspaceFolder}/node_modules/electron/dist/electron.exe" },
+      "args": ["."],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ]
+}
