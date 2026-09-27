@@ -125,7 +125,9 @@ class SuperTrendScanner {
     this.binance = binance;
     this.ranking = ranking;
     this.intervalMs = 60 * 1000;
-    this.timeframe = '1m';
+    // 必须与规则交易开仓/平仓使用的周期一致（RuleAutoTrader 用 calculateSuperTrend(c5,10,3)）。
+    // 原为 1m —— 面板显示的周期与策略实际使用的不同，用户无法据此验证为何开单，只会误导。
+    this.timeframe = '5m';
     this.atrPeriod = 10;
     this.multiplier = 3;
     this.candleLimit = 120;

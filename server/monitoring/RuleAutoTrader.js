@@ -755,7 +755,7 @@ class RuleAutoTrader {
 
     // 诚实性保障：任何未通过但没打 stage 的决策都会让漏斗失真（会被静默算进 RSI 阶段）。
     // 生产代码所有返回点都已打标记；这里兜底是为了让"忘记打标记"这种 bug 显性化，而不是给出貌似合理的错数。
-    const KNOWN = ['PRECHECK', 'FUNDING', 'TREND', 'RSI', 'VOLUME', 'ENTRY', 'RISK', 'PASS', 'PLACE', 'ERROR'];
+    const KNOWN = ['PRECHECK', 'FUNDING', 'TREND', 'TREND_1M', 'RSI', 'VOLUME', 'ENTRY', 'RISK', 'PASS', 'PLACE', 'ERROR'];
     const unstaged = list.filter(d => {
       if (!d) return false;
       if (d.status === 'READY' || d.status === 'ORDER_PLACED') return false;
@@ -768,6 +768,8 @@ class RuleAutoTrader {
     const passedFunding = Math.max(0, enteredFunding - blockedAt('FUNDING'));
     const enteredTrend = passedFunding;
     const passedTrend = Math.max(0, enteredTrend - blockedAt('TREND'));
+    const enteredTrend1m = passedTrend;
+    const passedTrend1m = Math.max(0, enteredTrend1m - blockedAt('TREND_1M'));
 
     // 进入 RSI 的池子 = 通过趋势的币（RSI 失败者 + 继续往后走的全部币）
     const rsiPool = list.filter(d => ['RSI', 'VOLUME', 'ENTRY', 'RISK', 'PASS', 'PLACE'].includes(d?.stage));
@@ -796,7 +798,7 @@ class RuleAutoTrader {
       if (f.depth && f.crossed && f.slope) passedSlope++;
     }
     // 背离的"进入数" = 到了 RSI 阶段但三条件没过的那批（只有它们会被判背离）
-    const enteredDivergence = Math.max(0, passedTrend - passedSlope);
+    const enteredDivergence = Math.max(0, passedTrend1m - passedSlope);
     const rsiTotalPassed = passedSlope + passedDivergence;
 
     const passedVolume = Math.max(0, rsiTotalPassed - blockedAt('VOLUME'));
@@ -807,7 +809,8 @@ class RuleAutoTrader {
     const stages = [
       { key: 'FUNDING', entered: enteredFunding, passed: passedFunding, blocked: blockedAt('FUNDING') },
       { key: 'TREND', entered: enteredTrend, passed: passedTrend, blocked: blockedAt('TREND') },
-      { key: 'RSI_DEPTH', entered: passedTrend, passed: passedDepth, blocked: passedTrend - passedDepth },
+      { key: 'TREND_1M', entered: enteredTrend1m, passed: passedTrend1m, blocked: blockedAt('TREND_1M') },
+      { key: 'RSI_DEPTH', entered: passedTrend1m, passed: passedDepth, blocked: passedTrend1m - passedDepth },
       { key: 'RSI_RECOVERY', entered: passedDepth, passed: passedRecovery, blocked: passedDepth - passedRecovery },
       { key: 'RSI_SLOPE', entered: passedRecovery, passed: passedSlope, blocked: passedRecovery - passedSlope },
       { key: 'RSI_DIVERGENCE', entered: enteredDivergence, passed: passedDivergence, blocked: enteredDivergence - passedDivergence },
@@ -942,6 +945,7 @@ class RuleAutoTrader {
       ruleTakeProfitRR: Number(c.ruleTakeProfitRR ?? 2),
       exitOnIndicatorReverse: c.exitOnIndicatorReverse !== false,
       divergenceEnabled: c.divergenceEnabled !== false,
+      require1mTrendMatch: c.require1mTrendMatch !== false,
       divergenceLookbackBars: Number(c.divergenceLookbackBars ?? 60),
       divergencePivotSpan: Number(c.divergencePivotSpan ?? 2),
       divergenceMinRsiDelta: Number(c.divergenceMinRsiDelta ?? 2),
@@ -1398,6 +1402,21 @@ class RuleAutoTrader {
     );
     if (marketState?.choppy) {
       return { ...base, stage: 'TREND', reason: '5M_MARKET_CHOP', trend5m: st5.direction === 1 ? 'UP' : 'DOWN', barsSinceFlip: st5.barsSinceFlip, marketState };
+    }
+
+    // 1m 趋势确认（可关，默认开）：在 5m 同向的基础上再要求 1m SuperTrend 同向。
+    // 入场本身是"在 5m 方向里等 1m 反弹"，所以这一层实际过滤掉的是【深度反弹】——
+    // 反弹深到把 1m 趋势都翻过来，说明可能不是回踩而是真反转。留下浅反弹，延续概率更高。
+    if (this.cfg.require1mTrendMatch !== false) {
+      const st1 = calculateSuperTrend(c1, 10, 3);
+      if (!st1) return { ...base, stage: 'TREND_1M', reason: 'SUPERTREND_1M_UNAVAILABLE' };
+      if (st1.direction !== desiredDir) {
+        return {
+          ...base, stage: 'TREND_1M', reason: '1M_TREND_MISMATCH',
+          trend1m: st1.direction === 1 ? 'UP' : 'DOWN', barsSinceFlip1m: st1.barsSinceFlip,
+          trend5m: st5.direction === 1 ? 'UP' : 'DOWN'
+        };
+      }
     }
 
     const rsiPeriod = Number(this.cfg.rsiPeriod || 14);

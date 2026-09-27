@@ -29,7 +29,7 @@ function rsiDecision({ action = 'LONG', depthReached, crossed, slopeConfirmed, d
 function assertFunnelShape(f) {
   const byKey = Object.fromEntries(f.stages.map(s => [s.key, s]));
   let prev = Infinity;
-  for (const k of ['FUNDING', 'TREND', 'RSI_DEPTH', 'RSI_RECOVERY', 'RSI_SLOPE']) {
+  for (const k of ['FUNDING', 'TREND', 'TREND_1M', 'RSI_DEPTH', 'RSI_RECOVERY', 'RSI_SLOPE']) {
     const s = byKey[k];
     assert.ok(s, `缺少阶段 ${k}`);
     assert.ok(s.passed <= s.entered, `${k}: passed(${s.passed}) 不得超过 entered(${s.entered})`);
@@ -40,7 +40,7 @@ function assertFunnelShape(f) {
   const div = byKey.RSI_DIVERGENCE;
   assert.ok(div, '缺少 RSI_DIVERGENCE 阶段');
   // 背离的"进入数"= 到了 RSI 但三条件没过的币（只有它们会被判背离）
-  assert.equal(div.entered, Math.max(0, byKey.TREND.passed - byKey.RSI_SLOPE.passed), '背离进入数应等于三条件失败者数量');
+  assert.equal(div.entered, Math.max(0, byKey.TREND_1M.passed - byKey.RSI_SLOPE.passed), '背离进入数应等于三条件失败者数量');
   assert.ok(div.passed <= div.entered, '背离通过数不得超过进入数');
   // 主链在 RSI 之后的入口 = 三条件通过 + 背离通过（两条通路互斥，不重复计数）
   assert.equal(byKey.VOLUME.entered, byKey.RSI_SLOPE.passed + div.passed, 'Volume 入口应等于三条件通过 + 背离通过');
@@ -164,7 +164,7 @@ test('V13.4.0：candidates=0（整轮被闸门跳过）时漏斗不炸且全为 
   const t = makeTrader();
   const f = t.buildFunnel({ decisions: [], candidates: 0, ordersPlaced: 0, indicatorPass: 0 });
   assert.equal(f.candidates, 0);
-  assert.equal(f.stages.length, 10);
+  assert.equal(f.stages.length, 11);
   for (const s of f.stages) {
     assert.equal(s.passed, 0);
     assert.equal(s.entered, 0);
@@ -443,12 +443,12 @@ test('V13.4.0：前端已声明 renderRuleFunnel，且漏斗格子数量与后�
   // 前端不能残留旧的二值 stage() 判定 bug
   assert.ok(!script.includes("startsWith('ENTRY_')"), '旧的 ENTRY_ 前缀判定必须已移除');
 
-  // 漏斗容器应有 11 格（候选池 + 10 个后端阶段）
+  // 漏斗容器应有 12 格（候选池 + 11 个后端阶段）
   const flow = html.match(/<div class="rule-flow">([\s\S]*?)<\/div>\s*<div class="rule-funnel-note"/)?.[1] || '';
   const steps = [...flow.matchAll(/class="flow-step/g)].length;
-  assert.equal(steps, 11, `漏斗应为 11 格，实际 ${steps}`);
-  // 11 格必须有唯一 id，且与后端阶段 key 一一对应
-  for (const id of ['flowRank', 'flowFunding', 'flowTrend', 'flowRsiDepth', 'flowRsiRecovery', 'flowRsiSlope', 'flowRsiDivergence', 'flowVol', 'flowEntry', 'flowRisk', 'flowPlace']) {
+  assert.equal(steps, 12, `漏斗应为 12 格，实际 ${steps}`);
+  // 12 格必须有唯一 id，且与后端阶段 key 一一对应
+  for (const id of ['flowRank', 'flowFunding', 'flowTrend', 'flowTrend1m', 'flowRsiDepth', 'flowRsiRecovery', 'flowRsiSlope', 'flowRsiDivergence', 'flowVol', 'flowEntry', 'flowRisk', 'flowPlace']) {
     assert.ok(flow.includes(`id="${id}"`), `缺少漏斗格子 ${id}`);
   }
 });

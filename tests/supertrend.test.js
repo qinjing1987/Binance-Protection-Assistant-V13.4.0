@@ -64,11 +64,13 @@ test('BinanceClient.fetchKlines 使用 USDⓈ-M /fapi/v1/klines 公共接口并�
 });
 
 
-test('SuperTrend 监控默认每1分钟扫描，并使用1m已收盘K线', () => {
+test('SuperTrend 监控默认每1分钟扫描，并使用5m已收盘K线（与策略同周期）', () => {
   const { SuperTrendScanner } = require('../server/monitoring/SuperTrendScanner');
   const scanner = new SuperTrendScanner({ binance: {}, ranking: {} });
   const status = scanner.getStatus();
   assert.equal(status.intervalMs, 60 * 1000);
   assert.equal(status.intervalMinutes, 1);
-  assert.equal(status.timeframe, '1m');
+  // 必须是 5m —— 与 RuleAutoTrader 开仓/平仓使用的 calculateSuperTrend(c5,10,3) 一致。
+  // 原为 1m，面板与策略周期不同会让用户无法验证为何开单。
+  assert.equal(status.timeframe, '5m');
 });

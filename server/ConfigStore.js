@@ -90,6 +90,9 @@ const DEFAULTS = {
     // RSI 顶底背离：作为 RSI 三条件的"顺势替代触发"（开仓 + 平仓同时生效）。
     // 底背离=价格更低低点但 RSI 更高低点（看涨）；顶背离反之。默认开。
     divergenceEnabled: true,
+    // 1m 趋势确认：在 5m 同向之外再要求 1m SuperTrend 同向。
+    // 注意与已废弃的 require5mTrendMatch（死参数，代码不读取）区分开。
+    require1mTrendMatch: true,
     divergenceLookbackBars: 60,
     divergencePivotSpan: 2,
     divergenceMinRsiDelta: 2,

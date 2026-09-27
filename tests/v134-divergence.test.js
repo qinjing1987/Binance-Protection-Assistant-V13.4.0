@@ -220,7 +220,10 @@ function makeEvalTrader(rt = {}) {
         ruleTrading: {
           enabled: true, rsiPeriod: PERIOD, rsiLongTrigger: 44, rsiLongDepth: 42,
           rsiShortTrigger: 56, rsiShortDepth: 58, rsiLookbackBars: 2, rsiDepthLookbackBars: 8,
-          stFlipCooldownBars: 1, volatilityGuardPct: 0, ...rt
+          stFlipCooldownBars: 1, volatilityGuardPct: 0,
+          // 默认关掉 1m 趋势确认，让本文件专注测背离行为；
+          // 1m 过滤另有专项测试，也可由 rt 覆盖后单独开启。
+          require1mTrendMatch: false, ...rt
         }
       })
     },
@@ -263,6 +266,29 @@ test('V13.4.0 集成：关闭背离开关后同一场景被 RSI 段拦下（零�
   assert.equal(d.triggerBy, null);
   assert.equal(d.divergence, null, '关闭时不评估背离');
   assert.equal(d.reason, 'RSI_RECOVERY_NOT_CONFIRMED', '失败原因仍是原有的 RSI 原因');
+});
+
+test('V13.4.0 集成：1m 趋势确认开启时，1m 反向的候选被拦在 TREND_1M', async () => {
+  // divergenceCandles 是"先跌后弹"的形态，1m SuperTrend 为 DOWN；
+  // 这里开一个 LONG，应当被 1m 趋势确认拦下（5m 用的是上升序列，能过 TREND）。
+  const t = makeEvalTrader({ require1mTrendMatch: true });
+  const d = await t.evaluateCandidate(
+    { symbol: 'ABCUSDT', action: 'LONG', group: 'GAINER', rank: 1 },
+    { currentSymbols: new Set(), pendingSymbols: new Set(), traceId: 'T3' }, 0
+  );
+  assert.equal(d.stage, 'TREND_1M');
+  assert.equal(d.reason, '1M_TREND_MISMATCH');
+  assert.equal(d.trend1m, 'DOWN', '记录 1m 方向便于诊断');
+  assert.equal(d.trend5m, 'UP', '5m 是通过的，说明拦在 1m 这一层');
+});
+
+test('V13.4.0：1m 趋势确认默认开启，可关闭', () => {
+  const withCfg = (rt) => new RuleAutoTrader({
+    config: { get: () => ({ ruleTrading: { enabled: true, ...rt } }) },
+    state: { getRuleCooldown: () => 0, getCooldown: () => 0 }, ranking: {}, risk: {}, binance: {}
+  });
+  assert.equal(withCfg({}).settingsSummary().require1mTrendMatch, true, '缺省即开');
+  assert.equal(withCfg({ require1mTrendMatch: false }).settingsSummary().require1mTrendMatch, false);
 });
 
 test('V13.4.0：divergenceReversal 用相反方向检测持仓的反转背离', () => {

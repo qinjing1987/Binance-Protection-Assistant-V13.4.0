@@ -79,6 +79,7 @@ function validateSettingsPatch(patch) {
     if (r.exitRsiShort != null && !(Number(r.exitRsiShort) >= 20 && Number(r.exitRsiShort) <= 50)) throw new Error('空头RSI退出阈值必须在20～50');
     if (r.exitOnIndicatorReverse != null && typeof r.exitOnIndicatorReverse !== 'boolean') throw new Error('指标平仓必须是 true 或 false');
     if (r.divergenceEnabled != null && typeof r.divergenceEnabled !== 'boolean') throw new Error('背离检测开关必须是 true 或 false');
+    if (r.require1mTrendMatch != null && typeof r.require1mTrendMatch !== 'boolean') throw new Error('1m趋势确认必须是 true 或 false');
     if (r.divergenceLookbackBars != null && !(Number(r.divergenceLookbackBars) >= 20 && Number(r.divergenceLookbackBars) <= 200)) throw new Error('背离回看K线必须在20～200');
     if (r.divergencePivotSpan != null && !(Number(r.divergencePivotSpan) >= 1 && Number(r.divergencePivotSpan) <= 5)) throw new Error('背离pivot跨度必须在1～5');
     if (r.divergenceMinRsiDelta != null && !(Number(r.divergenceMinRsiDelta) >= 0 && Number(r.divergenceMinRsiDelta) <= 20)) throw new Error('背离RSI最小差值必须在0～20');
