@@ -1042,7 +1042,12 @@ class RuleAutoTrader {
     const positionSide = String(o.ps || 'BOTH').toUpperCase();
     const status = String(o.X || '').toUpperCase();
     const orderId = String(o.i || '');
-    const plan = this.pending.get(orderId) || this.state.getRuleOrderPlan?.(cid) || null;
+    // pending 里的对象只管挂单跟踪，历史上不含结构止损字段；持久化计划才是完整的。
+    // 两者合并（持久化计划补全缺失字段），避免 pending 遮蔽它导致 sl=0、
+    // 规则自己的结构止损写不进保护状态而退回全局配置。
+    const pendingOrder = this.pending.get(orderId) || null;
+    const storedPlan = this.state.getRuleOrderPlan?.(cid) || null;
+    const plan = (pendingOrder || storedPlan) ? { ...(pendingOrder || {}), ...(storedPlan || {}) } : null;
     if (['CANCELED', 'EXPIRED', 'EXPIRED_IN_MATCH'].includes(status)) {
       const item = this.pending.get(orderId);
       const ttlExpired = item?.expiresAt && Date.now() >= Number(item.expiresAt) - 1500;
@@ -1692,7 +1697,18 @@ class RuleAutoTrader {
       createdAt: Date.now(),
       expiresAt: Date.now() + Number(this.cfg.orderTtlMinutes || 5) * 60 * 1000,
       traceId,
-      reason: 'V13.3_RSI_VOLUME_ST_LIMIT'
+      reason: 'V13.3_RSI_VOLUME_ST_LIMIT',
+      // 成交时（handleOrderUpdate 的 plan 查找）优先命中 this.pending，会遮蔽
+      // ruleOrderPlans 里的持久化计划。所以规则自己的结构止损/止盈字段必须挂在这里，
+      // 否则 plannedSLPct 取到 undefined → sl=0 → 保护退回全局 MARGIN 配置，
+      // 规则算出的 0.4~2.5% 结构止损被替换成全局的 0.2%，开仓几秒就被噪音扫掉。
+      action: signal.action,
+      entry: signal.entry,
+      stopPrice: signal.stopPrice,
+      tpPrice: signal.tpPrice,
+      plannedSLPct: signal.plannedSLPct,
+      plannedTPPct: signal.plannedTPPct,
+      leverage: signal.leverage
     });
     Logger.info('规则自动交易 LIMIT 已挂出', {
       traceId,
