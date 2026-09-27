@@ -573,6 +573,13 @@ class BinanceClient {
     });
   }
 
+  // 一次取回全市场资金费率：/fapi/v1/premiumIndex 不带 symbol 时返回数组。
+  // 逐 symbol 请求会产生 N 次调用，这里用单次调用换取限流安全。
+  async fetchFundingRates() {
+    const rows = await this.rawRequest('GET', '/fapi/v1/premiumIndex', {});
+    return Array.isArray(rows) ? rows : [];
+  }
+
   async fetchAccountEquity() {
     const account = await this.getAccount();
     const totalMargin = Number(account?.totalMarginBalance);

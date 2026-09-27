@@ -205,15 +205,17 @@ class RiskManager {
     const side = String(o.S || o.side || '').toUpperCase();
     const positionSide = String(o.ps || 'BOTH').toUpperCase();
     const reduceOnly = o.R === true || o.R === 'true' || o.R === 1 || o.R === '1';
-    // 只有平仓方向才进入“完整交易”统计；避免开仓成交手续费被误算成亏损交易。
+    // 平仓方向才计入"已实现盈亏"；避免把开仓成交误算成一笔亏损交易。
     const closingTrade = positionSide === 'LONG' ? side === 'SELL' : positionSide === 'SHORT' ? side === 'BUY' : reduceOnly;
-    if (!closingTrade) return;
     if (!realized && !fee) return;
     const d = this.state.rawGet('dailyRisk', null);
     if (!d || d.date !== utcDateKey()) return;
-    d.realizedPnl = Number(d.realizedPnl || 0) + realized;
-    d.fees = Number(d.fees || 0) + Math.abs(fee);
+    // 手续费不分开平仓都要计入 —— 之前只算平仓，导致日成本被低估约一半、日亏损熔断偏晚。
+    if (fee) d.fees = Number(d.fees || 0) + Math.abs(fee);
+    if (closingTrade && realized) d.realizedPnl = Number(d.realizedPnl || 0) + realized;
     this.state.rawSet('dailyRisk', d);
+    // 以下为"完整交易"统计（连亏计数、订单累计），只对平仓方向有意义。
+    if (!closingTrade) return;
 
     const status = String(o.X || '').toUpperCase();
     const orderId = String(o.i || '');

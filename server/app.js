@@ -42,7 +42,8 @@ function validateSettingsPatch(patch) {
     const r = patch.ruleTrading;
     if (r.enabled != null && typeof r.enabled !== 'boolean') throw new Error('规则自动交易 enabled 必须是 true 或 false');
     if (r.leverage != null && !(Number(r.leverage) >= 1 && Number(r.leverage) <= 125)) throw new Error('规则自动交易杠杆范围无效');
-    if (r.riskPerTradePct != null && !(Number(r.riskPerTradePct) > 0 && Number(r.riskPerTradePct) <= 2)) throw new Error('规则自动交易单笔风险必须大于0且不超过2%');
+    if (r.riskPerTradePct != null && !(Number(r.riskPerTradePct) > 0 && Number(r.riskPerTradePct) <= 10)) throw new Error('规则自动交易单笔风险必须大于0且不超过10%');
+    if (r.maxFundingRatePct != null && !(Number(r.maxFundingRatePct) >= 0 && Number(r.maxFundingRatePct) <= 1)) throw new Error('规则自动交易资金费率上限必须在0～1%（0 表示关闭过滤）');
     if (r.maxPositions != null && !(Number(r.maxPositions) >= 1 && Number(r.maxPositions) <= 5)) throw new Error('规则自动交易最大持仓必须在1～5');
     if (r.maxPendingOrders != null && !(Number(r.maxPendingOrders) >= 1 && Number(r.maxPendingOrders) <= 10)) throw new Error('规则自动交易最大挂单必须在1～10');
     if (r.orderTtlMinutes != null && !(Number(r.orderTtlMinutes) >= 1 && Number(r.orderTtlMinutes) <= 30)) throw new Error('规则自动交易挂单有效期必须在1～30分钟');
@@ -80,7 +81,7 @@ function validateSettingsPatch(patch) {
   }
   if (patch.risk) {
     const r = patch.risk;
-    if (r.riskPerTradePct != null && !(Number(r.riskPerTradePct) > 0 && Number(r.riskPerTradePct) <= 2)) throw new Error('单笔风险必须大于0且不超过2%');
+    if (r.riskPerTradePct != null && !(Number(r.riskPerTradePct) > 0 && Number(r.riskPerTradePct) <= 10)) throw new Error('单笔风险必须大于0且不超过10%');
     if (r.defaultLeverage != null && !(Number(r.defaultLeverage) >= 1 && Number(r.defaultLeverage) <= 125)) throw new Error('杠杆范围无效');
     if (r.maxAIPositions != null && !(Number(r.maxAIPositions) >= 1 && Number(r.maxAIPositions) <= 3)) throw new Error('AI最大持仓目前限制为1～3');
     if (r.maxAITotalRiskPct != null && !(Number(r.maxAITotalRiskPct) >= Number(r.riskPerTradePct ?? 0))) throw new Error('AI总风险不能小于单笔风险');

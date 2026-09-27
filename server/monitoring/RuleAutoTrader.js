@@ -642,6 +642,17 @@ class RuleAutoTrader {
     };
   }
 
+  // 资金费率判定：只拦"自己要付费"的方向。
+  // 做多在正费率时付费、做空在负费率时付费；反向的高费率对持仓者是收益，不该拦。
+  // 阈值单位是百分比（0.07 = 0.07%）；<=0 表示关闭过滤。
+  shouldBlockForFunding(action, ratePct, maxFundingPct) {
+    const max = Number(maxFundingPct);
+    if (!(max > 0)) return false;
+    const rate = Number(ratePct);
+    if (!Number.isFinite(rate)) return false;
+    return String(action).toUpperCase() === 'LONG' ? rate > max : rate < -max;
+  }
+
   // 逐阶段通过率漏斗。
   // 语义是「通过人数」而非「失败人数」：每一格 = 走到该阶段且全部条件通过的币数，
   // 因此天然单调不增。用单值 stage 计数（而非 reasonCounts）保证一币只算一次 ——
@@ -652,7 +663,7 @@ class RuleAutoTrader {
 
     // 诚实性保障：任何未通过但没打 stage 的决策都会让漏斗失真（会被静默算进 RSI 阶段）。
     // 生产代码所有返回点都已打标记；这里兜底是为了让"忘记打标记"这种 bug 显性化，而不是给出貌似合理的错数。
-    const KNOWN = ['PRECHECK', 'TREND', 'RSI', 'VOLUME', 'ENTRY', 'RISK', 'PASS', 'PLACE', 'ERROR'];
+    const KNOWN = ['PRECHECK', 'FUNDING', 'TREND', 'RSI', 'VOLUME', 'ENTRY', 'RISK', 'PASS', 'PLACE', 'ERROR'];
     const unstaged = list.filter(d => {
       if (!d) return false;
       if (d.status === 'READY' || d.status === 'ORDER_PLACED') return false;
@@ -661,7 +672,9 @@ class RuleAutoTrader {
 
     // 进入趋势阶段前出局：前置校验未过 + 评估异常
     const blockedPreTrend = blockedAt('PRECHECK') + blockedAt('ERROR');
-    const enteredTrend = Math.max(0, Number(candidates || 0) - blockedPreTrend);
+    const enteredFunding = Math.max(0, Number(candidates || 0) - blockedPreTrend);
+    const passedFunding = Math.max(0, enteredFunding - blockedAt('FUNDING'));
+    const enteredTrend = passedFunding;
     const passedTrend = Math.max(0, enteredTrend - blockedAt('TREND'));
 
     // 进入 RSI 的池子 = 通过趋势的币（RSI 失败者 + 继续往后走的全部币）
@@ -694,6 +707,7 @@ class RuleAutoTrader {
     const passedPlace = Math.max(0, passedRisk - blockedAt('PLACE'));
 
     const stages = [
+      { key: 'FUNDING', entered: enteredFunding, passed: passedFunding, blocked: blockedAt('FUNDING') },
       { key: 'TREND', entered: enteredTrend, passed: passedTrend, blocked: blockedAt('TREND') },
       { key: 'RSI_DEPTH', entered: passedTrend, passed: passedDepth, blocked: passedTrend - passedDepth },
       { key: 'RSI_RECOVERY', entered: passedDepth, passed: passedRecovery, blocked: passedDepth - passedRecovery },
@@ -1033,10 +1047,28 @@ class RuleAutoTrader {
         ...(rankings.gainers || []).map((x, i) => ({ ...x, action: 'LONG', group: 'GAINER', rank: i + 1 })),
         ...(rankings.losers || []).map((x, i) => ({ ...x, action: 'SHORT', group: 'LOSER', rank: i + 1 }))
       ].slice(0, topN * 2);
+      // 资金费率过滤：一次取回全市场费率，避免逐个 symbol 请求。
+      // 取不到时不清空、不阻塞交易，只记录降级状态 —— 让瞬时接口故障不至于停摆整个策略。
+      const maxFundingPct = Number(this.cfg.maxFundingRatePct ?? 0.07);
+      const fundingRates = new Map();
+      let fundingFilterActive = false;
+      if (maxFundingPct > 0 && typeof this.binance.fetchFundingRates === 'function') {
+        try {
+          const rows = await this.binance.fetchFundingRates();
+          for (const r of rows || []) {
+            const sym = normalizeSymbol(r.symbol);
+            const rate = Number(r.lastFundingRate);
+            if (sym && Number.isFinite(rate)) fundingRates.set(sym, rate);
+          }
+          fundingFilterActive = fundingRates.size > 0;
+        } catch (e) {
+          Logger.warn('资金费率快照获取失败，本轮不按费率过滤', { traceId, error: e, code: e.code || null, status: e.status || null });
+        }
+      }
       const currentSymbols = new Set(positions.map(p => normalizeSymbol(p.symbol)));
       const pendingSymbols = new Set([...this.pending.values()].map(x => normalizeSymbol(x.symbol)));
       this.updateRuleStats(s => { s.candidates += candidates.length; });
-      const decisions = await this.mapLimit(candidates, async (candidate, index) => this.evaluateCandidate(candidate, { currentSymbols, pendingSymbols, traceId }, index));
+      const decisions = await this.mapLimit(candidates, async (candidate, index) => this.evaluateCandidate(candidate, { currentSymbols, pendingSymbols, traceId, fundingRates, maxFundingPct, fundingFilterActive }, index));
       if (!this.canContinue()) return this.getStatus();
       let placed = 0;
       const reservedSymbols = new Set([...currentSymbols, ...pendingSymbols]);
@@ -1215,6 +1247,18 @@ class RuleAutoTrader {
     if (ctx.pendingSymbols.has(symbol)) return { ...base, stage: 'PRECHECK', reason: 'ALREADY_PENDING' };
     const cooldown = typeof this.state.getRuleCooldown === 'function' ? this.state.getRuleCooldown(symbol) : this.state.getCooldown(symbol);
     if (Date.now() < cooldown) return { ...base, stage: 'PRECHECK', reason: 'COOLDOWN', until: cooldown };
+
+    // 资金费率过滤：只拦"自己要付费"的方向 —— 做多付费率(rate>0)，做空付负费率(rate<0)。
+    // 反向的高费率对持仓者是收益，不该拦。
+    if (ctx.fundingRates instanceof Map && ctx.fundingRates.has(symbol)) {
+      const ratePct = ctx.fundingRates.get(symbol) * 100;
+      if (this.shouldBlockForFunding(action, ratePct, ctx.maxFundingPct)) {
+        return {
+          ...base, stage: 'FUNDING', reason: 'FUNDING_RATE_TOO_HIGH',
+          fundingRatePct: Number(ratePct.toFixed(4)), maxFundingRatePct: ctx.maxFundingPct
+        };
+      }
+    }
 
     const [rows1m, rows5m] = await Promise.all([
       this.getCachedKlines(symbol, '1m', 120, 5000),

@@ -129,15 +129,18 @@ test('V13.4.0：前置校验与评估异常计入 preTrendBlocked，漏斗仍单
   ];
   const f = t.buildFunnel({ decisions, candidates: 4, ordersPlaced: 1, indicatorPass: 1 });
   assert.equal(f.preTrendBlocked, 2, 'PRECHECK + ERROR 都应计入');
-  assert.equal(f.stages[0].entered, 2, '4 - 2 前置出局 = 2 进入趋势');
-  assert.equal(f.stages[0].passed, 1, '再减去 1 个趋势不符');
+  const byKey = Object.fromEntries(f.stages.map(s => [s.key, s]));
+  assert.equal(byKey.FUNDING.entered, 2, '4 - 2 前置出局 = 2 进入费率阶段');
+  assert.equal(byKey.FUNDING.passed, 2, '本轮无费率拦截');
+  assert.equal(byKey.TREND.entered, 2, '费率阶段未拦截，2 个进入趋势');
+  assert.equal(byKey.TREND.passed, 1, '再减去 1 个趋势不符');
 });
 
 test('V13.4.0：candidates=0（整轮被闸门跳过）时漏斗不炸且全为 0', () => {
   const t = makeTrader();
   const f = t.buildFunnel({ decisions: [], candidates: 0, ordersPlaced: 0, indicatorPass: 0 });
   assert.equal(f.candidates, 0);
-  assert.equal(f.stages.length, 8);
+  assert.equal(f.stages.length, 9);
   for (const s of f.stages) {
     assert.equal(s.passed, 0);
     assert.equal(s.entered, 0);
@@ -418,12 +421,53 @@ test('V13.4.0：前端已声明 renderRuleFunnel，且漏斗格子数量与后�
   // 前端不能残留旧的二值 stage() 判定 bug
   assert.ok(!script.includes("startsWith('ENTRY_')"), '旧的 ENTRY_ 前缀判定必须已移除');
 
-  // 漏斗容器应有 9 格（候选池 + 8 个后端阶段）
+  // 漏斗容器应有 10 格（候选池 + 9 个后端阶段）
   const flow = html.match(/<div class="rule-flow">([\s\S]*?)<\/div>\s*<div class="rule-funnel-note"/)?.[1] || '';
   const steps = [...flow.matchAll(/class="flow-step/g)].length;
-  assert.equal(steps, 9, `漏斗应为 9 格，实际 ${steps}`);
-  // 9 格必须有唯一 id，且与后端 8 个阶段 key 一一对应
-  for (const id of ['flowRank', 'flowTrend', 'flowRsiDepth', 'flowRsiRecovery', 'flowRsiSlope', 'flowVol', 'flowEntry', 'flowRisk', 'flowPlace']) {
+  assert.equal(steps, 10, `漏斗应为 10 格，实际 ${steps}`);
+  // 10 格必须有唯一 id，且与后端阶段 key 一一对应
+  for (const id of ['flowRank', 'flowFunding', 'flowTrend', 'flowRsiDepth', 'flowRsiRecovery', 'flowRsiSlope', 'flowVol', 'flowEntry', 'flowRisk', 'flowPlace']) {
     assert.ok(flow.includes(`id="${id}"`), `缺少漏斗格子 ${id}`);
   }
+});
+
+test('V13.4.0：资金费率过滤只拦"自己付费"的方向', () => {
+  const t = makeTrader();
+  const ctx = (rates) => ({ fundingRates: new Map(rates), maxFundingPct: 0.07 });
+
+  // 做多 + 高正费率 → 拦（多头要付费率）
+  assert.equal(t.shouldBlockForFunding('LONG', 0.08, 0.07), true);
+  // 做多 + 负费率 → 不拦（负费率对多头是收益）
+  assert.equal(t.shouldBlockForFunding('LONG', -0.5, 0.07), false);
+  // 做空 + 负费率 → 拦（空头要付费率）
+  assert.equal(t.shouldBlockForFunding('SHORT', -0.08, 0.07), true);
+  // 做空 + 正费率 → 不拦（正费率对空头是收益）
+  assert.equal(t.shouldBlockForFunding('SHORT', 0.5, 0.07), false);
+  // 边界：恰好等于阈值不拦
+  assert.equal(t.shouldBlockForFunding('LONG', 0.07, 0.07), false);
+  // 阈值 0 = 关闭过滤
+  assert.equal(t.shouldBlockForFunding('LONG', 5, 0), false);
+  // 费率缺失/非法不拦
+  assert.equal(t.shouldBlockForFunding('LONG', NaN, 0.07), false);
+});
+
+test('V13.4.0：费率拦截计入 FUNDING 阶段，漏斗仍单调', () => {
+  const t = makeTrader();
+  const f = t.buildFunnel({
+    decisions: [
+      { stage: 'FUNDING', action: 'LONG', status: 'SKIP', reason: 'FUNDING_RATE_TOO_HIGH' },
+      { stage: 'FUNDING', action: 'SHORT', status: 'SKIP', reason: 'FUNDING_RATE_TOO_HIGH' },
+      { stage: 'TREND', action: 'LONG', status: 'SKIP' },
+      { stage: 'PASS', action: 'LONG', status: 'READY' }
+    ],
+    candidates: 4, ordersPlaced: 1, indicatorPass: 1
+  });
+  const byKey = Object.fromEntries(f.stages.map(s => [s.key, s]));
+  assert.equal(byKey.FUNDING.entered, 4);
+  assert.equal(byKey.FUNDING.passed, 2, '2 个被费率拦下');
+  assert.equal(byKey.FUNDING.blocked, 2);
+  assert.equal(byKey.TREND.entered, 2);
+  assert.equal(byKey.TREND.passed, 1);
+  let prev = Infinity;
+  for (const s of f.stages) { assert.ok(s.passed <= prev, `${s.key} 必须单调不增`); prev = s.passed; }
 });

@@ -57,6 +57,9 @@ const DEFAULTS = {
     topN: 20,
     leverage: 10,
     riskPerTradePct: 0.5,
+    // 资金费率过滤：做多只拦正费率、做空只拦负费率（只有付费的方向才拦）。
+    // 单位是百分比，0.07 = 0.07%。设为 0 关闭过滤。
+    maxFundingRatePct: 0.07,
     maxPositions: 1,
     maxPendingOrders: 2,
     orderTtlMinutes: 5,
